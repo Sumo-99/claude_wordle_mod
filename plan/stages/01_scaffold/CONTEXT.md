@@ -18,12 +18,14 @@ word source, stats, or the archive.
    - `command.run` (filtered to `wordle`): `$.ui.open({ id: 'wordle', title: 'Wordle', focus: true, closeOnEscape: true })`.
    - `ui.render` (filtered to `{ component: 'Pane' }`, `e.requestId === 'wordle'`): return a placeholder `Text` ("Wordle — coming soon") in a `Box`. Real board rendering is stage `04`.
 4. Write `types/index.d.ts` with an empty `PluginState` shape for `wordle-mod` (stages `05`/`06` add real keys as they introduce them — don't invent speculative keys now).
+5. Write `.gitignore` at repo root — `node_modules/`, `*.log`, `.DS_Store`, and `coverage/` (stage `07` adds a test suite; its coverage output shouldn't get committed). No `dist/`/build-output entry unless a later stage actually introduces a build step — don't ignore directories that don't exist yet.
 
 ## Outputs
 - `.claude-plugin/plugin.json`
 - `hooks/hooks.json`
 - `hooks/register.js`
 - `types/index.d.ts`
+- `.gitignore`
 
 ## Human check
 Run `claude --plugin-dir .` in a terminal at the repo root. Type

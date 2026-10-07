@@ -8,7 +8,7 @@ Reference (every stage, read-only): `../docs/spec/2026-10-07-wordle-mod-design.m
 
 | Stage | Job | Input | Output (real paths, repo root) | Human check |
 |---|---|---|---|---|
-| `01_scaffold` | Minimal loadable plugin + `/wordle` command | spec §1, §2 | `.claude-plugin/plugin.json`, `hooks/hooks.json`, `hooks/register.js`, `types/index.d.ts` | `/wordle` opens and closes an empty pane in a terminal session |
+| `01_scaffold` | Minimal loadable plugin + `/wordle` command | spec §1, §2 | `.claude-plugin/plugin.json`, `hooks/hooks.json`, `hooks/register.js`, `types/index.d.ts`, `.gitignore` | `/wordle` opens and closes an empty pane in a terminal session |
 | `02_word_source` | Resolve a date to a word, live + fallback | spec §4 | `hooks/lib/word-source.js`, `data/fallback-answers.txt`, `data/valid-guesses.txt` | Resolving 2026-10-07 and 2024-01-01 returns `prove`/`mural`; forcing a network failure returns a tagged fallback word instead of throwing |
 | `03_game_engine` | Score a guess against an answer | spec §3, 02's valid-guess list | `hooks/lib/game-engine.js` | Hand-check scoring against known tricky cases (double letters, e.g. guess `ALLOY` vs answer `ATOLL`) |
 | `04_interface` | Draw the board, on-screen keyboard, warning indicator | spec §1, §5; 03's engine | `hooks/lib/board-view.js` (pane `ui.render` + control callbacks) | Play one full game by mouse clicks only, in both the terminal and the Desktop app Code tab; typed keys also work once the pane has focus |
