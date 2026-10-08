@@ -90,8 +90,25 @@ const statsBlock = (h, Box, Text, stats) => {
 }
 
 /** The stats pane's tree: its own window, opened by the main pane's toggle. */
-export const renderStats = ({ h, Box, Text }, { stats }) =>
-  h(Box, { flexDirection: 'column', gap: 1 }, h(Text, { bold: true }, 'Wordle stats'), statsBlock(h, Box, Text, stats))
+export const renderStats = ({ h, Box, Text, Button }, { stats, isConfirmingClear }, on) =>
+  h(
+    Box,
+    { flexDirection: 'column', gap: 1 },
+    // title left, the clear control top right; the button is dim until the pointer
+    // or focus is on it, and the first press only arms it
+    h(
+      Box,
+      { flexDirection: 'row', justifyContent: 'space-between' },
+      h(Text, { bold: true }, 'Wordle stats'),
+      h(Button, {
+        key: 'clear-stats',
+        label: isConfirmingClear ? 'Press again to clear' : 'Clear stats',
+        dimColor: !isConfirmingClear,
+        onPress: () => on.clearStats(),
+      }),
+    ),
+    statsBlock(h, Box, Text, stats),
+  )
 
 /** The archive picker: a Select of recent days plus a free-entry date field. */
 const archiveBlock = (h, Box, Text, Select, Input, { puzzle, today }, on) => {

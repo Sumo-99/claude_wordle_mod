@@ -23,7 +23,7 @@ one new picker control.
 - `hooks/lib/stats.js` — pure `applyCompletion`, `winPercent`, plus `loadStats`/`recordCompletion(io, …)` over `io.store`.
 - `hooks/lib/archive.js` — small date helpers (`recentDates`, `checkArchiveDate`, `boardKey`); the archive accepts dates from 2021-06-19 (launch) through today.
 - `register.js` — a `stats` atom and `puzzle.isToday`; `startDate` resumes a saved `board:<date>`; the `enter` handler saves the board after every guess and records stats only for a finished game of today.
-- `board-view.js` — `renderStats` for a **separate stats pane** (`wordle-stats`: streaks, win %, distribution bars), opened/closed by a `Stats` / `Hide stats` toggle `Button` in the main pane header (an `isStatsOpen` atom, kept honest by a `ui.close` hook when the person closes it themselves); plus, in the main pane, a `Select` of the last 14 days, a date `Input` (no `autoFocus`), and a "Practice puzzle" banner for non-today dates.
+- `board-view.js` — `renderStats` for a **separate stats pane** (`wordle-stats`: streaks, win %, distribution bars), with a two-press `Clear stats` button at its top right, opened/closed by a `Stats` / `Hide stats` toggle `Button` in the main pane header (an `isStatsOpen` atom, kept honest by a `ui.close` hook when the person closes it themselves); plus, in the main pane, a `Select` of the last 14 days, a date `Input` (no `autoFocus`), and a "Practice puzzle" banner for non-today dates.
 - Tests: `stats.test.ts` (units) and a `board.test.ts` case that plays today, then a practice day, then returns to today.
 
 ## Outputs

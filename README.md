@@ -48,7 +48,9 @@ Enter and **2** is Backspace.
 
 Press **Stats** in the header to open a separate stats window: current
 streak, max streak, games played, win %, and how many wins took 1–6
-guesses. Only today's puzzle counts.
+guesses. Only today's puzzle counts. **Clear stats** (top right of that
+window; press twice to confirm) resets the history to zero without touching
+your saved boards.
 
 ### Practice: past puzzles
 

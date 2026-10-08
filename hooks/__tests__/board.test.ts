@@ -179,3 +179,44 @@ test('a live puzzle has no warning marker', async ($, on) => {
 
   expect(await pane.find({ key: 'fallback-warning' } as any)).toBeUndefined()
 })
+
+test('Clear stats needs two presses and resets the history', async ($, on) => {
+  mock.store(on)
+  const clock = mock.clock(on, { now: Date.parse('2026-10-07T12:00:00') })
+  on('http.fetch', async () => ({ value: ok({ solution: SOLUTION }) }))
+  on('fs.read', async () => ({ value: 'crane\nprove\n' }) as any)
+  const toasts: string[] = []
+  on('ui.toast', async (_$, e) => {
+    toasts.push(e.text)
+
+    return { value: undefined } as any
+  })
+
+  const pane = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: {}, requestId: 'wordle' } as any)
+  const statsPane = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: {}, requestId: 'wordle-stats' } as any)
+  await clock.settle()
+  await clock.settle()
+  const shown = async () => JSON.stringify(await statsPane.drawn())
+  const label = async () => (await statsPane.find({ key: 'clear-stats' } as any))?.props.label
+
+  await pane.input({ key: 'guess', text: 'prove', kind: 'change' } as any)
+  await pane.input({ key: 'guess', text: 'prove', kind: 'submit' } as any)
+  expect(await shown()).toContain('Streak 1 · Max 1 · Played 1 · Win 100%')
+
+  // first press only arms it
+  expect(await label()).toBe('Clear stats')
+  await statsPane.press({ key: 'clear-stats' } as any)
+  expect(await label()).toBe('Press again to clear')
+  expect(await shown()).toContain('Played 1')
+
+  // it disarms itself if you walk away
+  await clock.advance(5000)
+  expect(await label()).toBe('Clear stats')
+
+  // two presses clear everything
+  await statsPane.press({ key: 'clear-stats' } as any)
+  await statsPane.press({ key: 'clear-stats' } as any)
+  expect(await shown()).toContain('Streak 0 · Max 0 · Played 0 · Win 0%')
+  expect(toasts).toContain('Stats cleared.')
+  expect(await label()).toBe('Clear stats')
+})

@@ -35,6 +35,8 @@ declare module 'claude-code' {
       stats: WordleStats
       /** Whether the separate stats pane is open (the main pane's toggle reads it). */
       isStatsOpen: boolean
+      /** The stats pane's clear button has been pressed once and awaits a second press. */
+      isConfirmingClear: boolean
     }
   }
 }

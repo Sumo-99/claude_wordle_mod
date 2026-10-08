@@ -4,7 +4,7 @@ import { FALLBACK_NOTE, renderBoard, renderStats } from './lib/board-view.js'
 import { boardKey, checkArchiveDate } from './lib/archive.js'
 import { AUTO_OPEN_KEY, describeAutoOpen, parseWordleArgs, USAGE } from './lib/lifecycle.js'
 import { createGame, submitGuess, WORD_LENGTH } from './lib/game-engine.js'
-import { DEFAULT_STATS, loadStats, recordCompletion } from './lib/stats.js'
+import { DEFAULT_STATS, loadStats, recordCompletion, STATS_KEY } from './lib/stats.js'
 import { isValidGuess, resolveWord } from './lib/word-source.js'
 
 const PANE = 'wordle'
@@ -15,6 +15,9 @@ const draft = atom({ plugin: 'wordle-mod', key: 'draft' }, '')
 const puzzle = atom({ plugin: 'wordle-mod', key: 'puzzle' }, null)
 const stats = atom({ plugin: 'wordle-mod', key: 'stats' }, DEFAULT_STATS)
 const isStatsOpen = atom({ plugin: 'wordle-mod', key: 'isStatsOpen' }, false)
+const isConfirmingClear = atom({ plugin: 'wordle-mod', key: 'isConfirmingClear' }, false)
+
+const CLEAR_CONFIRM_MS = 5000
 
 // A plugin has one hooks module and the engine's `$` can't cross an import, so
 // everything that touches `$` lives here; lib/ is pure and takes closures.
@@ -112,6 +115,24 @@ const pickDate = async ($, input) => {
   await startDate($, check.date)
 }
 
+/**
+ * Wipes the saved stats. Two presses within a few seconds: the first arms the
+ * button, the second clears. Saved boards are kept, so a finished puzzle stays
+ * finished; only streaks, win % and the distribution reset.
+ */
+const clearStats = async $ => {
+  if (!(await read($, isConfirmingClear))) {
+    await update($, isConfirmingClear, () => true)
+    $.clock.after(CLEAR_CONFIRM_MS, () => update($, isConfirmingClear, () => false))
+
+    return
+  }
+  await $.store.set(STATS_KEY, DEFAULT_STATS)
+  await update($, stats, () => DEFAULT_STATS)
+  await update($, isConfirmingClear, () => false)
+  $.ui.toast('Stats cleared.')
+}
+
 /** The stats window: a second pane, opened and closed by the main pane's toggle. */
 const toggleStats = async $ => {
   if (await read($, isStatsOpen)) {
@@ -176,9 +197,10 @@ export const register = on => {
 
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
     if (e.requestId === STATS_PANE) {
-      const { Box, Text } = $.ui.resolve(e)
+      const { Box, Text, Button } = $.ui.resolve(e)
+      const view = { stats: await read($, stats), isConfirmingClear: await read($, isConfirmingClear) }
 
-      return renderStats({ h, Box, Text }, { stats: await read($, stats) })
+      return renderStats({ h, Box, Text, Button }, view, { clearStats: () => clearStats($) })
     }
     if (e.requestId !== PANE) return next(e)
     const { Box, Text, Button, Input, Select } = $.ui.resolve(e)
