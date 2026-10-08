@@ -24,6 +24,14 @@ colored (green / yellow / gray, via theme keys) and underlined, with a
 small legend beside the keyboard explaining the colors. This renders the
 same everywhere and needs no surface-specific branching.
 
+*Amended by stage `08_ui_redesign`:* the look is now the arcade "Claude
+night" reference (`docs/ui-ref/wordle-ui-final.png`), still plain `Box` /
+`Text` / `Button` with no `Raster` and no surface branch. Colors are one
+fixed palette of raw hex values rather than theme keys; a scored letter is a
+filled 5×3 half-block tile (green / amber / dark) instead of an underlined
+letter, the legend is gone, and keys show their state on a double-line
+frame. The stats readout moved from its own pane into the main pane.
+
 ## 2. Trigger model
 
 - `/wordle` command: always available, opens the pane on demand,

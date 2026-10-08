@@ -6,6 +6,8 @@ Tick a box when you've seen it pass; add a note under anything that fails.
 
 *Status note: everything not listed as an issue after your first pass was closed on your say-so. Still open: the stats panel items (Stage 06) and the Backspace/Enter focus-fix re-checks below.*
 
+*Stage 08 note: the pane was redrawn (arcade "Claude night" look). Older items below still describe the behavior to check, but some name controls that have changed: **Guess:** is now **TYPE:**, the **Day:** list is now **◀ ▶** / **▶ TODAY** / **DATE…**, the separate stats window is now **▾ MORE** under the STREAK row, **Del** is now **⌫**, letter keys have no hotkey of their own, and status lines read `GUESS 2 OF 6`, `SOLVED IN 2/6`, `THE WORD WAS …`. The legend is gone. The new checks are in "Stage 08" at the end.*
+
 Setup for every check:
 
 ```bash
@@ -107,3 +109,52 @@ From `report.md` (the UX playthrough): V6 streak doesn't reset after a missed da
 ## Stage 07 — testing and polish
 - [x] `claude plugin test .` is all green (29 tests at the time of writing) and `claude plugin validate .` passes.
 - [x] From a clean `git clone` in another directory, following only `README.md` gets `/wordle` working. (Spot-check the README's claims too: the 1/2 hotkeys, the Stats button, the 14-day list, the 144-column note.)
+
+## Stage 08 — UI redesign (arcade "Claude night")
+Reference: `docs/ui-ref/wordle-ui-final.png` (keys: `docs/ui-ref/wordle-key-styles.png`, option 5). Look only: rules, word source, stats, archive and celebration are unchanged.
+
+What the API allows, and what was decided (details in `plan/stages/08_ui_redesign/CONTEXT.md`):
+- A Button's label can't be colored, so a key's state shows on its **double-line frame only**; the letter stays text-colored. The same goes for `◀ ▶`, `▶ TODAY` and `▾ MORE` (text-colored, not orange).
+- A `plain` Button with a hotkey draws as `q: Q`, so **letter keys have no hotkey** (your choice); ⏎ and ⌫ keep `1` / `2` and are one column wider (`1: ⏎`).
+- Physical Backspace can't be a hotkey, so the typing field stays: one line, **TYPE:**.
+- Desktop draws Box as a div, Text as a span, Button as a **native button** even when plain; whether a `double` border paints as `║` glyphs there isn't documented. That's what the Desktop items below are for.
+
+Terminal, about 100 columns (compare side by side with the reference):
+- [ ] Header: `1UP` / `HI-SCORE` / `STAGE` labels in orange over white values (`00000`, `00000`, `08 OCT`).
+- [ ] The block-letter **WORDLE** title, 4 rows, centered, orange.
+- [ ] Two panels in orange double-line walls on a slightly lighter background than the pane: board on the left, controls on the right.
+- [ ] Tiles: 5×3 pixel-rounded (`▗▄▄▄▖` / solid middle / `▝▀▀▀▘`). Green and amber tiles have dark letters; misses are dark with dim letters; the typing row is dark with white letters and an orange `▌` cursor in the next empty tile; rows ahead are `•` pellets, with `●` in the last row's corners.
+- [ ] Keys: double-line frames, gray when untried, green/amber once found, ⏎ always orange; a known miss is a dim `·` in the key's place (no frame).
+- [ ] Status row: `READY!` (amber) only before guess 1; `GUESS N OF 6`; `LIVES ◆ ◆ ◆ ◆ ◇ ◇` (◇ = guesses used). A rejected word costs no life.
+- [ ] Orange divider, then `STREAK` (pink), `BEST` (blue), `WIN%` (amber) labels with white two-digit values.
+- [ ] `STAGE ◀ 08 OCT` (no ▶ on today), `DATE…`; hint `TYPE TO PLAY · ESC TO EXIT` (dim).
+- [ ] No legend, no `Guess 1/6 · …` line, no `Play another day` block, no `[ bracket ]` buttons anywhere.
+
+Playing:
+- [ ] Type a guess with the physical keyboard (letters, Backspace, Enter): it fills the active tile row as you type.
+- [ ] Click letters, ⌫ and ⏎ on the on-screen keyboard; then keep typing without clicking the field.
+- [ ] `1` and `2` press ⏎ / ⌫ when the focus is on the pane rather than in the field (Tab off the field first).
+- [ ] An invalid word: "Not in word list", the letters stay. A short word: "Not enough letters".
+- [ ] After a loss: `THE WORD WAS …` in amber, keys fade, hint becomes `◀ ▶ PICK ANOTHER STAGE · ESC TO EXIT`.
+
+Stats, stages, dates:
+- [ ] `▾ MORE` opens PLAYED/WON, the 1–6 bars and `CLEAR STATS` under the stats row; `▴ LESS` closes it. `CLEAR STATS` needs two presses (the first reads `PRESS AGAIN TO CLEAR` and disarms after ~5 s).
+- [ ] `◀` steps one day back (`── PRACTICE STAGE ──` appears under the title, pink); `▶` steps forward; `◀` stops after 14 days; `▶ TODAY` jumps back and resumes today's board.
+- [ ] `DATE…` opens a date field; a bad or future date toasts and the field stays open; a good one loads that day and closes the field.
+- [ ] Win today: 1UP shows 100 × guesses left (e.g. `00400` for a 2-guess win) and HI-SCORE picks it up. Win a practice day: 1UP shows its score, HI-SCORE doesn't change.
+- [ ] Offline (⚠ OFFLINE PUZZLE under the status row) and the new-day line (`── A NEW DAY HAS STARTED · … IS NOW PRACTICE ──`) still appear when they should.
+
+Celebration:
+- [ ] Win a puzzle: the red celebration plays as before, then hands back to the **new** board (`SOLVED IN N/6`, colored tiles).
+
+Sizes:
+- [ ] ~100 columns in a tall pane (docked fullscreen ≥110 columns, or a very tall terminal): the full reference layout.
+- [ ] ~100 columns, ordinary height: the blank rows between tile rows go first, then tiles flatten to one row and the title/header to one line; nothing overlaps.
+- [ ] ~60 columns: plain **WORDLE**, controls panel under the board, header on one line; nothing overlaps or wraps mid-word.
+
+Desktop app (Code tab), same pane:
+- [ ] Double-line walls and key frames: do they draw as `║ ═` glyphs, a CSS double border, or not at all? Are the frame colors right?
+- [ ] Panel and pane background colors show.
+- [ ] Half-block title and tiles join up (no gaps between rows of `▀▄`).
+- [ ] Keys are native buttons inside the frames: note how they look and whether clicks still land.
+- [ ] Anything that renders differently from the terminal: note it here.

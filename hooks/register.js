@@ -1,7 +1,8 @@
 import { atom, read, update } from 'claude-code'
 
-import { FALLBACK_NOTE, renderBoard, renderStats } from './lib/board-view.js'
+import { FALLBACK_NOTE, renderBoard } from './lib/board-view.js'
 import { boardKey, checkArchiveDate } from './lib/archive.js'
+import { stepStage } from './lib/arcade.js'
 import { FRAME_MS, TOTAL_FRAMES } from './lib/fireworks.js'
 import {
   AUTO_OPEN_KEY,
@@ -19,7 +20,6 @@ import { DEFAULT_STATS, loadStats, recordCompletion, STATS_KEY } from './lib/sta
 import { isValidGuess, resolveWord } from './lib/word-source.js'
 
 const PANE = 'wordle'
-const STATS_PANE = 'wordle-stats'
 
 const game = atom({ plugin: 'wordle-mod', key: 'game' }, null)
 const draft = atom({ plugin: 'wordle-mod', key: 'draft' }, '')
@@ -27,6 +27,7 @@ const puzzle = atom({ plugin: 'wordle-mod', key: 'puzzle' }, null)
 const stats = atom({ plugin: 'wordle-mod', key: 'stats' }, DEFAULT_STATS)
 const isStatsOpen = atom({ plugin: 'wordle-mod', key: 'isStatsOpen' }, false)
 const isConfirmingClear = atom({ plugin: 'wordle-mod', key: 'isConfirmingClear' }, false)
+const isDateEntryOpen = atom({ plugin: 'wordle-mod', key: 'isDateEntryOpen' }, false)
 const celebrationFrame = atom({ plugin: 'wordle-mod', key: 'celebrationFrame' }, -1)
 const isMotionReduced = atom({ plugin: 'wordle-mod', key: 'isMotionReduced' }, false)
 
@@ -179,11 +180,31 @@ const enter = async $ => {
   if (out.game.status === 'lost') $.ui.toast(`The word was ${out.game.answer.toUpperCase()}`)
 }
 
-/** Archive picker and date field: validate, then switch the active puzzle. */
+/** ▶ TODAY and the date field: validate, then switch the active puzzle. */
 const pickDate = async ($, input) => {
   const check = checkArchiveDate(input, await today($))
   if (!check.ok) return $.ui.toast(check.reason)
+  await update($, isDateEntryOpen, () => false)
   await startDate($, check.date)
+}
+
+/** ◀ (dir -1) and ▶ (dir +1) beside the stage date: one day back or forward. */
+const stepToStage = async ($, dir) => {
+  const active = await read($, puzzle)
+  const now = await today($)
+  const date = stepStage(active?.date ?? now, now, dir)
+  if (date) await pickDate($, date)
+}
+
+/** DATE…: shows or hides the typed-date field, and gives it the keyboard when it opens. */
+const toggleDateEntry = async $ => {
+  const isOpen = await update($, isDateEntryOpen, v => !v)
+  if (!isOpen) return focusGuess($)
+  try {
+    await $.ui.focus({ requestId: PANE, key: 'archive-date' })
+  } catch {
+    // the person can click into it instead
+  }
 }
 
 let celebrationTimer = null
@@ -234,15 +255,9 @@ const clearStats = async $ => {
   $.ui.toast('Stats cleared.')
 }
 
-/** The stats window: a second pane, opened and closed by the main pane's toggle. */
+/** ▾ MORE / ▴ LESS beside the stats row: the details (played, distribution, Clear stats). */
 const toggleStats = async $ => {
-  if (await read($, isStatsOpen)) {
-    await $.ui.close({ id: STATS_PANE })
-    await update($, isStatsOpen, () => false)
-  } else {
-    await $.ui.open({ id: STATS_PANE, title: 'Wordle stats', closeOnEscape: true })
-    await update($, isStatsOpen, () => true)
-  }
+  await update($, isStatsOpen, v => !v)
 }
 
 /** @type {import('claude-code').Register} */
@@ -304,37 +319,29 @@ export const register = on => {
     return next(e)
   })
 
-  // The person can close the stats window themselves (✕ / Esc): keep the toggle honest.
-  on('ui.close', async ($, e, next) => {
-    try {
-      if (e.id === STATS_PANE) await update($, isStatsOpen, () => false)
-    } catch {
-      // bookkeeping only: never get in the way of the person closing a pane
-    }
-
-    return next(e)
-  })
-
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
-    if (e.requestId === STATS_PANE) {
-      const { Box, Text, Button } = $.ui.resolve(e)
-      const view = { stats: await read($, stats), isConfirmingClear: await read($, isConfirmingClear) }
-
-      return renderStats({ h, Box, Text, Button }, view, { clearStats: () => clearStats($) })
-    }
     if (e.requestId !== PANE) return next(e)
-    const { Box, Text, Button, Input, Select } = $.ui.resolve(e)
+    const { Box, Text, Button, Input } = $.ui.resolve(e)
     const view = {
       game: await read($, game),
       draft: await read($, draft),
       puzzle: await read($, puzzle),
       today: await today($),
+      stats: await read($, stats),
       isStatsOpen: await read($, isStatsOpen),
+      isConfirmingClear: await read($, isConfirmingClear),
+      isDateEntryOpen: await read($, isDateEntryOpen),
       celebrationFrame: await read($, celebrationFrame),
       isMotionReduced: await read($, isMotionReduced),
       isFieldBlanked: await read($, isFieldBlanked),
       // the win screen fills the pane: its width, and a height close to the board's own
       screen: { columns: e.bodyColumns ?? 40, rows: Math.min(26, Math.max(12, (e.viewport?.rows ?? 30) - 6)) },
+      // the board's room, which picks its layout: the Pane's own `bodyColumns` and
+      // `scroll.bodyRows` (the room's rows), which this build hands over under `e.props`
+      layout: {
+        columns: e.props?.bodyColumns ?? e.viewport?.columns ?? 40,
+        rows: e.props?.scroll?.bodyRows,
+      },
     }
 
     if (!view.game && !isLoading) {
@@ -342,8 +349,7 @@ export const register = on => {
       $.clock.after(0, async () => startDate($, await today($)))
     }
 
-
-    return renderBoard({ h, Box, Text, Button, Input, Select }, view, {
+    return renderBoard({ h, Box, Text, Button, Input }, view, {
       letter: async ch => {
         await typeLetter($, ch)
         await focusGuess($)
@@ -357,8 +363,18 @@ export const register = on => {
         await focusGuess($)
       },
       input: text => setDraft($, text),
-      pickDate: value => pickDate($, value),
+      pickDate: async value => {
+        await pickDate($, value)
+        // a refused typed date leaves its field open, and the keyboard with it
+        if (!(await read($, isDateEntryOpen))) await focusGuess($)
+      },
+      stepStage: async dir => {
+        await stepToStage($, dir)
+        await focusGuess($)
+      },
       toggleStats: () => toggleStats($),
+      toggleDateEntry: () => toggleDateEntry($),
+      clearStats: () => clearStats($),
       fallbackInfo: () => $.ui.toast(FALLBACK_NOTE),
       skipCelebration: () => skipCelebration($),
     })

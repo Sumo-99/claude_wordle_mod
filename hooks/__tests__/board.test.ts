@@ -4,6 +4,28 @@ const SOLUTION = 'prove'
 
 const ok = (body: unknown) => ({ status: 200, ok: true, headers: {}, text: JSON.stringify(body) })
 
+const FILL = { green: '#5fb87a', yellow: '#f0b44c', miss: '#2e2a26', active: '#2e2a26' }
+
+/** Every string an element shows, its descendants' included, space-separated. */
+const flat = (el: any): string =>
+  el == null ? '' : typeof el === 'string' ? el : (el.children ?? []).map(flat).filter(Boolean).join(' ')
+
+/** Tile (row r, column i): the letter in its middle row and that row's fill and letter color. */
+const tileAt = async (pane: any, r: number, i: number) => {
+  const middle = (await pane.find({ key: `t${r}-${i}` }))?.children[1]
+
+  return { text: middle?.children[0], fill: middle?.props.backgroundColor, color: middle?.props.color }
+}
+const rowOf = async (pane: any, r: number) => Promise.all([0, 1, 2, 3, 4].map(i => tileAt(pane, r, i)))
+
+/** The typed-date field behind DATE…: the way to a day outside the ◀ ▶ steps. */
+const goTo = async (pane: any, clock: any, date: string) => {
+  await pane.press({ key: 'date-entry' })
+  await pane.input({ key: 'archive-date', text: date, kind: 'submit' })
+  await clock.settle()
+  await clock.settle()
+}
+
 for (const surface of ['terminal', 'desktop'] as const) {
   test(`plays a game by pressing the on-screen keys (${surface})`, async ($, on) => {
     mock.store(on)
@@ -21,19 +43,13 @@ for (const surface of ['terminal', 'desktop'] as const) {
       await pane.press({ key: 'enter' } as any)
     }
     const text = async () => JSON.stringify(await pane.drawn())
-    // scored letters are the underlined Texts outside the legend (whose sample letter is 'A')
-    const scored = async () =>
-      (await pane.findAll({ type: 'Text' } as any))
-        .filter((t: any) => t.props.underline)
-        .map((t: any) => `${t.text}:${t.props.color}`)
+    const scored = async (r: number) => (await rowOf(pane, r)).map(t => `${t.text.trim()}:${t.fill}`)
 
-    // a wrong guess scores per tile: c r a n e vs p r o v e -> gray green gray gray green
+    // a wrong guess scores per tile: c r a n e vs p r o v e -> miss green miss miss green
     await press('crane')
-    expect((await scored()).slice(0, 5)).toEqual(['C:inactive', 'R:success', 'A:inactive', 'N:inactive', 'E:success'])
-    // the legend explains all three colors
-    for (const phrase of ['right letter, right place', 'right letter, wrong place', 'not in the word']) {
-      expect(await text()).toContain(phrase)
-    }
+    expect(await scored(0)).toEqual([`C:${FILL.miss}`, `R:${FILL.green}`, `A:${FILL.miss}`, `N:${FILL.miss}`, `E:${FILL.green}`])
+    // the tiles carry the meaning: there is no legend any more
+    expect(await text()).not.toContain('right letter')
     // typing in the field: it feeds the same draft, and deleting a character shortens it
     const typed = async (value: string) => {
       await pane.input({ key: 'guess', text: value, kind: 'change' } as any)
@@ -48,14 +64,14 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await typed('')).toBe('')
     // an illegal word costs nothing
     await press('zzzzz')
-    expect(await text()).toContain('Guess 2/6')
+    expect(await text()).toContain('GUESS 2 OF 6')
     // the rejected word stays in the draft until backspaced away
     for (let i = 0; i < 5; i++) await pane.press({ key: 'back' } as any)
-    expect(await text()).not.toContain('▫️Z')
+    expect((await tileAt(pane, 1, 0)).text).toBe('  ▌  ') // an empty row again, cursor in its first tile
     await press('prove')
     await clock.advance(3100) // the win screen covers the board for 3 seconds
-    expect((await scored()).slice(5, 10)).toEqual(['P:success', 'R:success', 'O:success', 'V:success', 'E:success'])
-    expect(await text()).toContain('Solved in 2/6')
+    expect(await scored(1)).toEqual(['P', 'R', 'O', 'V', 'E'].map(ch => `${ch}:${FILL.green}`))
+    expect(await text()).toContain('SOLVED IN 2/6')
   })
 }
 
@@ -70,60 +86,56 @@ test('stats count only today; an archived game is practice and today resumes', a
   on('ui.toast', async () => ({ value: undefined }) as any)
 
   const pane = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: {}, requestId: 'wordle' } as any)
-  const statsPane = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: {}, requestId: 'wordle-stats' } as any)
   await clock.settle()
   await clock.settle()
+  await pane.press({ key: 'stats-toggle' } as any) // the details: played and won
 
-  const everything = async () => JSON.stringify(await pane.drawn()) + JSON.stringify(await statsPane.drawn())
+  const everything = async () => JSON.stringify(await pane.drawn())
+  const statsShown = async () => `${flat(await pane.find({ key: 'stats' } as any))} ${flat(await pane.find({ key: 'stats-details' } as any))}`
   const play = async (word: string) => {
     await pane.input({ key: 'guess', text: word, kind: 'change' } as any)
     await pane.input({ key: 'guess', text: word, kind: 'submit' } as any)
   }
-  const pick = async (date: string) => {
-    await pane.select({ key: 'archive-pick', value: date } as any)
-    await clock.settle()
-    await clock.settle()
-  }
-
   // lose nothing yet: stats start empty
-  expect(await everything()).toContain('Streak 0 · Max 0 · Played 0 · Win 0%')
+  expect(await statsShown()).toContain('STREAK 00 BEST 00 WIN% 00')
+  expect(await statsShown()).toContain('PLAYED 0 · WON 0')
 
   // win today in two guesses
   await play('crane')
   await play('prove')
   await clock.advance(3100) // the win screen covers the board for 3 seconds
-  expect(await everything()).toContain('Streak 1 · Max 1 · Played 1 · Win 100%')
+  expect(await statsShown()).toContain('STREAK 01 BEST 01 WIN% 100')
+  expect(await statsShown()).toContain('PLAYED 1 · WON 1')
 
   // an archived day is practice: solve it, stats unchanged, and it says so
-  await pick('2026-10-06')
-  expect(await everything()).toContain('Practice puzzle')
+  await pane.press({ key: 'stage-prev' } as any) // ◀: one day back
+  await clock.settle()
+  await clock.settle()
+  expect(await everything()).toContain('PRACTICE STAGE')
   await play('crane')
   await clock.advance(3100)
-  expect(await everything()).toContain('Solved in 1/6')
-  expect(await everything()).toContain('Streak 1 · Max 1 · Played 1 · Win 100%')
+  expect(await everything()).toContain('SOLVED IN 1/6')
+  expect(await statsShown()).toContain('STREAK 01 BEST 01 WIN% 100')
+  expect(await statsShown()).toContain('PLAYED 1 · WON 1')
 
   // back to today: the finished board is shown, not a blank one, and stats did not double count
-  await pick('2026-10-07')
-  expect(await everything()).toContain('Solved in 2/6')
-  expect(await everything()).not.toContain('Practice puzzle')
-  expect(await everything()).toContain('Streak 1 · Max 1 · Played 1 · Win 100%')
+  await pane.press({ key: 'play-today' } as any)
+  await clock.settle()
+  await clock.settle()
+  expect(await everything()).toContain('SOLVED IN 2/6')
+  expect(await everything()).not.toContain('PRACTICE STAGE')
+  expect(await statsShown()).toContain('PLAYED 1 · WON 1')
 })
 
-test('the stats window is a separate pane opened and closed by a toggle', async ($, on) => {
+test('the stats details open under the stats row and close again; no second pane', async ($, on) => {
   mock.store(on)
   const clock = mock.clock(on, { now: Date.parse('2026-10-07T12:00:00') })
   on('http.fetch', async () => ({ value: ok({ solution: SOLUTION }) }))
   on('fs.read', async () => ({ value: 'crane\nprove\n' }) as any)
   on('ui.toast', async () => ({ value: undefined }) as any)
   const opened: string[] = []
-  const closed: string[] = []
   on('ui.open', async (_$, e) => {
     opened.push(e.id)
-
-    return { value: undefined } as any
-  })
-  on('ui.close', async (_$, e) => {
-    closed.push(e.id)
 
     return { value: undefined } as any
   })
@@ -131,18 +143,23 @@ test('the stats window is a separate pane opened and closed by a toggle', async 
   const pane = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: {}, requestId: 'wordle' } as any)
   await clock.settle()
   await clock.settle()
+  const toggle = async () => (await pane.find({ key: 'stats-toggle' } as any))?.props.label
 
-  // the main pane carries no stats of its own, just the toggle
-  expect(JSON.stringify(await pane.drawn())).not.toContain('Streak')
-  expect((await pane.find({ key: 'stats-toggle' } as any))?.props.label).toBe('Stats')
-
-  await pane.press({ key: 'stats-toggle' } as any)
-  expect(opened).toEqual(['wordle-stats'])
-  expect((await pane.find({ key: 'stats-toggle' } as any))?.props.label).toBe('Hide stats')
+  // the stats row is always there; the details are not
+  expect(flat(await pane.find({ key: 'stats' } as any))).toContain('STREAK 00')
+  expect(await pane.find({ key: 'stats-details' } as any)).toBeUndefined()
+  expect(await toggle()).toBe('▾ MORE')
 
   await pane.press({ key: 'stats-toggle' } as any)
-  expect(closed).toEqual(['wordle-stats'])
-  expect((await pane.find({ key: 'stats-toggle' } as any))?.props.label).toBe('Stats')
+  const details = flat(await pane.find({ key: 'stats-details' } as any))
+  expect(details).toContain('PLAYED 0')
+  for (const n of ['1', '2', '3', '4', '5', '6']) expect(details).toContain(n) // the distribution rows
+  expect(await pane.find({ key: 'clear-stats' } as any)).toBeDefined()
+  expect(await toggle()).toBe('▴ LESS')
+
+  await pane.press({ key: 'stats-toggle' } as any)
+  expect(await pane.find({ key: 'stats-details' } as any)).toBeUndefined()
+  expect(opened).toEqual([]) // it all happens inside the one pane
 })
 
 test('an offline puzzle shows the warning marker, and pressing it explains why', async ($, on) => {
@@ -166,7 +183,7 @@ test('an offline puzzle shows the warning marker, and pressing it explains why',
   await clock.settle()
 
   const marker = await pane.find({ key: 'fallback-warning' } as any)
-  expect(marker?.props.label).toContain('offline puzzle')
+  expect(marker?.props.label).toBe('⚠ OFFLINE PUZZLE')
   await pane.press({ key: 'fallback-warning' } as any)
   expect(toasts.at(-1)).toContain("Couldn't reach the live word")
 })
@@ -197,32 +214,34 @@ test('Clear stats needs two presses and resets the history', async ($, on) => {
   })
 
   const pane = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: {}, requestId: 'wordle' } as any)
-  const statsPane = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: {}, requestId: 'wordle-stats' } as any)
   await clock.settle()
   await clock.settle()
-  const shown = async () => JSON.stringify(await statsPane.drawn())
-  const label = async () => (await statsPane.find({ key: 'clear-stats' } as any))?.props.label
+  const shown = async () => `${flat(await pane.find({ key: 'stats' } as any))} ${flat(await pane.find({ key: 'stats-details' } as any))}`
+  const label = async () => (await pane.find({ key: 'clear-stats' } as any))?.props.label
 
   await pane.input({ key: 'guess', text: 'prove', kind: 'change' } as any)
   await pane.input({ key: 'guess', text: 'prove', kind: 'submit' } as any)
-  expect(await shown()).toContain('Streak 1 · Max 1 · Played 1 · Win 100%')
+  await clock.advance(3100) // past the win screen
+  await pane.press({ key: 'stats-toggle' } as any) // Clear stats lives in the details
+  expect(await shown()).toContain('STREAK 01 BEST 01 WIN% 100')
 
   // first press only arms it
-  expect(await label()).toBe('Clear stats')
-  await statsPane.press({ key: 'clear-stats' } as any)
-  expect(await label()).toBe('Press again to clear')
-  expect(await shown()).toContain('Played 1')
+  expect(await label()).toBe('CLEAR STATS')
+  await pane.press({ key: 'clear-stats' } as any)
+  expect(await label()).toBe('PRESS AGAIN TO CLEAR')
+  expect(await shown()).toContain('PLAYED 1')
 
   // it disarms itself if you walk away
   await clock.advance(5000)
-  expect(await label()).toBe('Clear stats')
+  expect(await label()).toBe('CLEAR STATS')
 
   // two presses clear everything
-  await statsPane.press({ key: 'clear-stats' } as any)
-  await statsPane.press({ key: 'clear-stats' } as any)
-  expect(await shown()).toContain('Streak 0 · Max 0 · Played 0 · Win 0%')
+  await pane.press({ key: 'clear-stats' } as any)
+  await pane.press({ key: 'clear-stats' } as any)
+  expect(await shown()).toContain('STREAK 00 BEST 00 WIN% 00')
+  expect(await shown()).toContain('PLAYED 0 · WON 0')
   expect(toasts).toContain('Stats cleared.')
-  expect(await label()).toBe('Clear stats')
+  expect(await label()).toBe('CLEAR STATS')
 })
 
 test('winning swaps the board for a 3 second red celebration screen, then the board returns', async ($, on) => {
@@ -270,7 +289,9 @@ test('winning swaps the board for a 3 second red celebration screen, then the bo
 
   // the finished game board is back, in full
   expect(await boardShown()).toBe(true)
-  expect(JSON.stringify(await pane.drawn())).toContain('Solved in 2/6')
+  expect(JSON.stringify(await pane.drawn())).toContain('SOLVED IN 2/6')
+  expect(await pane.find({ key: 'board' } as any)).toBeDefined() // the new walled board
+  expect((await tileAt(pane, 1, 0)).fill).toBe(FILL.green)
 })
 
 test('the continue control on the win screen goes straight back to the board', async ($, on) => {
@@ -290,7 +311,7 @@ test('the continue control on the win screen goes straight back to the board', a
 
   await pane.press({ key: 'skip-celebration' } as any)
   expect(await pane.find({ key: 'fireworks' } as any)).toBeUndefined()
-  expect(JSON.stringify(await pane.drawn())).toContain('Solved in 1/6')
+  expect(JSON.stringify(await pane.drawn())).toContain('SOLVED IN 1/6')
   // the stopped timer does not bring it back
   await clock.advance(1000)
   expect(await pane.find({ key: 'fireworks' } as any)).toBeUndefined()
@@ -306,9 +327,7 @@ test('MOCHA on a practice date: the winning letters are never painted over', asy
   const pane = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: {}, requestId: 'wordle' } as any)
   await clock.settle()
   await clock.settle()
-  await pane.select({ key: 'archive-pick', value: '2026-10-05' } as any)
-  await clock.settle()
-  await clock.settle()
+  await goTo(pane, clock, '2026-10-05')
   await pane.input({ key: 'guess', text: 'mocha', kind: 'change' } as any)
   await pane.input({ key: 'guess', text: 'mocha', kind: 'submit' } as any)
 
@@ -324,8 +343,8 @@ test('MOCHA on a practice date: the winning letters are never painted over', asy
   const row = await pane.find({ key: 'row0' } as any)
   expect(row).toBeDefined()
   const tree = JSON.stringify(await pane.drawn())
-  for (const ch of ['M', 'O', 'C', 'H', 'A']) expect(tree).toContain(`"${ch}"`)
-  expect(tree).toContain('Solved in 1/6')
+  expect((await rowOf(pane, 0)).map(t => t.text.trim())).toEqual(['M', 'O', 'C', 'H', 'A'])
+  expect(tree).toContain('SOLVED IN 1/6')
 })
 
 // ---- V1: keyboard feedback, V2: offline word recovery, V3: end-of-game cue, V11: new day ----
@@ -376,51 +395,213 @@ test('V1: a letter keeps the best result it has had (green beats yellow beats gr
   expect(states.z).toBeUndefined()
 })
 
-test('V1: the on-screen keys show what the guesses found', async ($, on) => {
+test('V1: the on-screen keys show what the guesses found; a miss is eaten down to a dot', async ($, on) => {
   const { pane, play } = await setupGame($, on) // answer: prove
-  await play('crane') // c a n gray, r e green
+  await play('crane') // c a n miss, r e green
+  await play('mocha') // o present; m c h a miss
 
   const box = (ch: string) => pane.find({ key: `kc-${ch}` } as any)
-  expect((await box('r'))?.props.backgroundColor).toBe('success')
-  expect((await box('e'))?.props.backgroundColor).toBe('success')
-  expect(await box('c')).toBeUndefined() // gray keys get no color background...
-  expect((await pane.find({ key: 'k-c' } as any))?.props.dimColor).toBe(true) // ...they fade
-  expect((await pane.find({ key: 'k-q' } as any))?.props.dimColor).toBe(false) // untouched keys stay normal
+  for (const ch of ['r', 'e']) {
+    expect((await box(ch))?.props.borderColor).toBe(FILL.green)
+    expect((await box(ch))?.props.borderStyle).toBe('double')
+  }
+  expect((await box('o'))?.props.borderColor).toBe(FILL.yellow)
+  expect((await box('q'))?.props.borderColor).toBe('#5a524a') // untried: the idle outline
+  expect((await pane.find({ key: 'k-q' } as any))?.props.dimColor).toBe(false)
+  expect((await pane.find({ key: 'k-q' } as any))?.props.label).toBe('Q') // just the letter...
+  expect((await pane.find({ key: 'k-q' } as any))?.props.plain).toBe(true) // ...no [ brackets ]
+  // a known miss is no key at all: a dim dot holds its place
+  for (const ch of ['c', 'a', 'n', 'm', 'h']) {
+    expect(await box(ch)).toBeUndefined()
+    expect(await pane.find({ key: `k-${ch}` } as any)).toBeUndefined()
+    expect((await pane.find({ key: `kx-${ch}` } as any))?.children[0]).toMatchObject({ type: 'Text', props: { color: '#6e655b' }, children: ['·'] })
+  }
+  // Enter always wears the accent outline
+  expect((await box('enter'))?.props.borderColor).toBe('#d97757')
+})
+
+test('tiles: scored fills, the typed row with its cursor, and pellets ahead', async ($, on) => {
+  const { pane, play } = await setupGame($, on) // answer: prove
+  await play('crane')
+  await pane.input({ key: 'guess', text: 'pl', kind: 'change' } as any)
+
+  // scored: the letter is background-colored on green, dim on a miss
+  expect(await tileAt(pane, 0, 1)).toEqual({ text: '  R  ', fill: FILL.green, color: '#171513' })
+  expect(await tileAt(pane, 0, 0)).toEqual({ text: '  C  ', fill: FILL.miss, color: '#6e655b' })
+  // each tile is pixel-rounded: ▗▄▄▄▖ over the middle, ▝▀▀▀▘ under it, in the tile's color
+  const t = await pane.find({ key: 't0-1' } as any)
+  expect(t?.children[0]).toMatchObject({ props: { color: FILL.green }, children: ['▗▄▄▄▖'] })
+  expect(t?.children[2]).toMatchObject({ props: { color: FILL.green }, children: ['▝▀▀▀▘'] })
+  // the active row: typed letters in the text color, the ▌ cursor in the next empty tile
+  expect(await tileAt(pane, 1, 0)).toEqual({ text: '  P  ', fill: FILL.active, color: '#f0e8dc' })
+  expect(await tileAt(pane, 1, 2)).toEqual({ text: '  ▌  ', fill: FILL.active, color: '#d97757' })
+  expect((await tileAt(pane, 1, 3)).fill).toBe(FILL.active)
+  // rows ahead have no tiles, just pellets; the last row has power pellets in its corners
+  expect((await tileAt(pane, 2, 0)).fill).toBeUndefined()
+  expect((await tileAt(pane, 2, 0)).text).toBe('  •  ')
+  expect((await rowOf(pane, 5)).map(t => t.text.trim())).toEqual(['●', '•', '•', '•', '●'])
+})
+
+test('the status row: READY! only before guess 1, the guess count, and lives', async ($, on) => {
+  const { pane, play } = await setupGame($, on) // answer: prove
+  const status = async () => flat(await pane.find({ key: 'status' } as any))
+
+  expect(await status()).toBe('READY! GUESS 1 OF 6 LIVES ◆ ◆ ◆ ◆ ◆ ◆')
+  await play('crane')
+  expect(await status()).toBe('GUESS 2 OF 6 LIVES ◆ ◆ ◆ ◆ ◆ ◇')
+  await play('slate')
+  expect(await status()).toBe('GUESS 3 OF 6 LIVES ◆ ◆ ◆ ◆ ◇ ◇')
+  await pane.input({ key: 'guess', text: 'zzzzz', kind: 'submit' } as any) // a rejected guess costs no life
+  expect(await status()).toBe('GUESS 3 OF 6 LIVES ◆ ◆ ◆ ◆ ◇ ◇')
+})
+
+test('1UP and HI-SCORE: 100 per guess left on a win; practice never sets the HI-SCORE', async ($, on) => {
+  const { pane, clock, play } = await setupGame($, on, { answers: { '2026-10-07': 'prove', '2026-10-06': 'crane' } })
+  const header = async () => flat(await pane.find({ key: 'header' } as any))
+
+  expect(await header()).toBe('1UP 00000 HI-SCORE 00000 STAGE 07 OCT')
+  await play('crane')
+  await play('prove') // won in 2: 4 guesses left
+  await clock.advance(3100)
+  expect(await header()).toBe('1UP 00400 HI-SCORE 00400 STAGE 07 OCT')
+
+  await pane.press({ key: 'stage-prev' } as any) // practice: won in 1
+  await clock.settle()
+  await clock.settle()
+  await play('crane')
+  await clock.advance(3100)
+  expect(await header()).toBe('1UP 00500 HI-SCORE 00400 STAGE 06 OCT')
+})
+
+test('stage stepping: ◀ ▶ walk the last 14 days, ▶ TODAY jumps back', async ($, on) => {
+  const { pane, clock, text } = await setupGame($, on) // today: 2026-10-07
+  const step = async (key: string) => {
+    await pane.press({ key } as any)
+    await clock.settle()
+    await clock.settle()
+  }
+  const stage = async () => flat(await pane.find({ key: 'stage-date' } as any))
+
+  // today: nowhere forward to go, nothing to jump back to
+  expect(await pane.find({ type: 'Button', key: 'stage-next' } as any)).toBeUndefined()
+  expect(await pane.find({ key: 'play-today' } as any)).toBeUndefined()
+
+  await step('stage-prev')
+  expect(await stage()).toBe('STAGE 06 OCT')
+  expect(await text()).toContain('PRACTICE STAGE')
+  await step('stage-next')
+  expect(await stage()).toBe('STAGE 07 OCT')
+  expect(await text()).not.toContain('PRACTICE STAGE')
+
+  for (let i = 0; i < 13; i++) await step('stage-prev')
+  expect(await stage()).toBe('STAGE 24 SEP') // the 14th day back from 07 OCT is the last
+  expect(await pane.find({ type: 'Button', key: 'stage-prev' } as any)).toBeUndefined() // ◀ is spent
+
+  await step('play-today')
+  expect(await stage()).toBe('STAGE 07 OCT')
+})
+
+test('a typed date still works, behind DATE…', async ($, on) => {
+  const toasts: string[] = []
+  const { pane, clock, text } = await setupGame($, on, { toasts })
+  expect(await pane.find({ key: 'archive-date' } as any)).toBeUndefined()
+
+  await pane.press({ key: 'date-entry' } as any)
+  await pane.input({ key: 'archive-date', text: '2030-01-01', kind: 'submit' } as any)
+  expect(toasts.at(-1)).toBe('That puzzle is in the future')
+  expect(await pane.find({ key: 'archive-date' } as any)).toBeDefined() // left open to fix
+
+  await pane.input({ key: 'archive-date', text: '2024-01-01', kind: 'submit' } as any)
+  await clock.settle()
+  await clock.settle()
+  expect(flat(await pane.find({ key: 'stage-date' } as any))).toBe('STAGE 01 JAN')
+  expect(await text()).toContain('PRACTICE STAGE')
+  expect(await pane.find({ key: 'archive-date' } as any)).toBeUndefined() // closed once it worked
+})
+
+test('layout: side by side with the block title when wide, stacked with a plain title when narrow', async ($, on) => {
+  const { pane } = await setupGame($, on)
+  // nothing on the board is drawn with [ brackets ]: every Button is plain
+  for (const b of await pane.findAll({ type: 'Button' } as any)) expect(b.props.plain).toBe(true)
+  await pane.unmount()
+  for (const [columns, direction, isBlock] of [
+    [100, 'row', true],
+    [60, 'column', false],
+  ] as const) {
+    const wide = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: { bodyColumns: columns }, requestId: 'wordle' } as any)
+    expect((await wide.find({ key: 'panels' } as any))?.props.flexDirection).toBe(direction)
+    const title = await wide.find({ key: 'title' } as any)
+    expect(flat(title).includes('█')).toBe(isBlock)
+    if (!isBlock) expect(flat(title)).toBe('WORDLE')
+    // both panels wear the double walls in the walls color
+    for (const key of ['board', 'controls']) {
+      expect((await wide.find({ key } as any))?.props).toMatchObject({ borderStyle: 'double', borderColor: '#d97757' })
+    }
+    await wide.unmount()
+  }
+})
+
+test('layout: a short pane drops the blank rows, then flattens the tiles, the title and the header', async ($, on) => {
+  const { pane } = await setupGame($, on)
+  await pane.unmount()
+  const mountAt = (bodyRows: number) =>
+    $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: { bodyColumns: 96, scroll: { offset: 0, bodyRows } }, requestId: 'wordle' } as any)
+
+  // roomy (the reference): 3-row tiles with a blank row between tile rows, block title
+  let ui = await mountAt(40)
+  expect((await ui.find({ key: 'board' } as any))?.props.gap).toBe(1)
+  expect((await ui.find({ key: 't0-0' } as any))?.children).toHaveLength(3)
+  expect(flat(await ui.find({ key: 'title' } as any))).toContain('█')
+  await ui.unmount()
+
+  // snug: the tiles keep their shape, the blank rows go
+  ui = await mountAt(30)
+  expect((await ui.find({ key: 'board' } as any))?.props.gap).toBe(0)
+  expect((await ui.find({ key: 't0-0' } as any))?.children).toHaveLength(3)
+  expect(flat(await ui.find({ key: 'title' } as any))).toContain('█')
+  await ui.unmount()
+
+  // tight: one-row tiles, a plain title, a one-row header
+  ui = await mountAt(18)
+  expect((await ui.find({ key: 't0-0' } as any))?.children).toHaveLength(1)
+  expect(flat(await ui.find({ key: 'title' } as any))).toBe('WORDLE')
+  expect((await ui.find({ key: 'score' } as any))?.props.flexDirection).toBe('row')
+  await ui.unmount()
 })
 
 test('V3: when the game is over the keyboard fades and the status line says what to do next', async ($, on) => {
   const { pane, play, text } = await setupGame($, on) // answer: prove
   for (const word of ['crane', 'slate', 'brick', 'plumb', 'mocha', 'crane']) await play(word)
 
-  expect(await text()).toContain('The word was PROVE')
-  expect(await text()).toContain('Pick another day below')
-  for (const ch of ['q', 'a', 'z']) expect((await pane.find({ key: `k-${ch}` } as any))?.props.dimColor).toBe(true)
+  expect(await text()).toContain('THE WORD WAS PROVE')
+  expect(await text()).toContain('◀ ▶ PICK ANOTHER STAGE')
+  for (const key of ['k-q', 'k-z', 'enter', 'back']) expect((await pane.find({ key } as any))?.props.dimColor).toBe(true)
   expect(await pane.find({ key: 'guess' } as any)).toBeUndefined() // the field is gone
-  expect(await pane.find({ key: 'archive-pick' } as any)).toBeDefined() // and the way to another day is right there
+  expect(await pane.find({ key: 'stage-prev' } as any)).toMatchObject({ type: 'Button' }) // and the way to another day is right there
 })
 
 test('V11: after midnight the open puzzle is marked as old, offers today, and no longer counts', async ($, on) => {
   const { pane, clock, play, text } = await setupGame($, on, { answers: { '2026-10-07': 'prove', '2026-10-08': 'slate' } })
-  const stats = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: {}, requestId: 'wordle-stats' } as any)
-  expect(await text()).not.toContain('A new day has started')
+  expect(await text()).not.toContain('A NEW DAY HAS STARTED')
 
   await clock.advance(24 * 3600 * 1000) // midnight passes with the pane open
   await pane.input({ key: 'guess', text: 'c', kind: 'change' } as any) // any redraw
-  expect(await text()).toContain('A new day has started')
-  expect(await text()).toContain('2026-10-07 is now practice')
+  expect(await text()).toContain('A NEW DAY HAS STARTED')
+  expect(await text()).toContain('07 OCT IS NOW PRACTICE')
   expect(await pane.find({ key: 'play-today' } as any)).toBeDefined()
 
   // finishing the stale puzzle must not count as today's: lose it and look at the stats
   await pane.input({ key: 'guess', text: '', kind: 'change' } as any)
   for (const word of ['crane', 'slate', 'brick', 'plumb', 'mocha', 'crane']) await play(word)
-  expect(JSON.stringify(await stats.drawn())).toContain('Played 0')
+  await pane.press({ key: 'stats-toggle' } as any)
+  expect(flat(await pane.find({ key: 'stats-details' } as any))).toContain('PLAYED 0')
 
   // the button jumps to the new day's puzzle, fresh, and the old-day warning is gone
   await pane.press({ key: 'play-today' } as any)
   await clock.settle()
   await clock.settle()
-  expect(await text()).toContain('2026-10-08')
-  expect(await text()).not.toContain('A new day has started')
+  expect(flat(await pane.find({ key: 'stage-date' } as any))).toBe('STAGE 08 OCT')
+  expect(await text()).not.toContain('A NEW DAY HAS STARTED')
   expect(await pane.find({ key: 'play-today' } as any)).toBeUndefined()
 })
 
@@ -434,16 +615,12 @@ test('V2: a game begun on the offline word finishes on it, even after the live w
   expect(await pane.find({ key: 'fallback-warning' } as any)).toBeDefined() // offline puzzle, answer crane
   await play('plumb') // one guess made against the offline word
 
-  await pane.select({ key: 'archive-pick', value: '2026-10-06' } as any) // go elsewhere (still offline)
-  await clock.settle()
-  await clock.settle()
+  await goTo(pane, clock, '2026-10-06') // go elsewhere (still offline)
   isOffline = false // the network comes back; the live word for today is 'slate'
-  await pane.select({ key: 'archive-pick', value: '2026-10-07' } as any)
-  await clock.settle()
-  await clock.settle()
+  await goTo(pane, clock, '2026-10-07')
 
   // progress is kept, on the word it started with, still flagged offline
-  expect(await text()).toContain('Guess 2/6')
+  expect(await text()).toContain('GUESS 2 OF 6')
   expect(await pane.find({ key: 'fallback-warning' } as any)).toBeDefined()
 })
 
@@ -456,16 +633,12 @@ test('V2: an untouched offline day switches to the live word once it is reachabl
   })
   expect(await pane.find({ key: 'fallback-warning' } as any)).toBeDefined()
 
-  await pane.select({ key: 'archive-pick', value: '2026-10-06' } as any)
-  await clock.settle()
-  await clock.settle()
+  await goTo(pane, clock, '2026-10-06')
   isOffline = false
-  await pane.select({ key: 'archive-pick', value: '2026-10-07' } as any)
-  await clock.settle()
-  await clock.settle()
+  await goTo(pane, clock, '2026-10-07')
 
   // no guesses had been made, so nothing to protect: back to the real word, no marker
-  expect(await text()).toContain('Guess 1/6')
+  expect(await text()).toContain('GUESS 1 OF 6')
   expect(await pane.find({ key: 'fallback-warning' } as any)).toBeUndefined()
 })
 
@@ -513,7 +686,7 @@ test('a refused focus move never breaks a key press', async ($, on) => {
   expect((await pane.find({ key: 'guess' } as any))?.props.value).toBe('pr')
 })
 
-test('the delete key is labelled in plain text and the hint names the real keys', async ($, on) => {
+test('⏎ and ⌫ keep their 1 and 2 hotkeys, and the hint says how to play', async ($, on) => {
   mock.store(on)
   const clock = mock.clock(on, { now: Date.parse('2026-10-07T12:00:00') })
   on('http.fetch', async () => ({ value: ok({ solution: SOLUTION }) }))
@@ -524,8 +697,11 @@ test('the delete key is labelled in plain text and the hint names the real keys'
   await clock.settle()
   await clock.settle()
 
-  expect((await pane.find({ key: 'back' } as any))?.props.label).toBe('Del')
-  expect(JSON.stringify(await pane.drawn())).toContain('Backspace to delete, Enter to guess')
+  expect((await pane.find({ key: 'enter' } as any))?.props).toMatchObject({ label: '⏎', hotkey: '1', plain: true })
+  expect((await pane.find({ key: 'back' } as any))?.props).toMatchObject({ label: '⌫', hotkey: '2', plain: true })
+  // letter keys carry no hotkey: a plain Button with one would draw as `q: Q`
+  expect((await pane.find({ key: 'k-q' } as any))?.props.hotkey).toBeUndefined()
+  expect(JSON.stringify(await pane.drawn())).toContain('TYPE TO PLAY · ESC TO EXIT')
 })
 
 test('/wordle config reset-history: asks first, then wipes games and words but keeps stats and settings', async ($, on) => {
@@ -540,7 +716,7 @@ test('/wordle config reset-history: asks first, then wipes games and words but k
   expect(asked).toContain('1 saved game')
   expect(asked).toContain('reset-history confirm')
   expect(await run('config reset-history')).toContain('1 saved game') // still there
-  expect(await text()).toContain('Guess 2/6')
+  expect(await text()).toContain('GUESS 2 OF 6')
 
   // confirm wipes the history...
   expect(await run('config reset-history confirm')).toContain('Cleared 1 saved game')
@@ -549,7 +725,7 @@ test('/wordle config reset-history: asks first, then wipes games and words but k
   expect(await run('config auto-open')).toContain('on')
   await clock.settle()
   await clock.settle()
-  expect(await text()).toContain('Guess 1/6')
+  expect(await text()).toContain('GUESS 1 OF 6')
   expect(await pane.find({ key: 'guess' } as any)).toBeDefined()
 })
 
@@ -564,13 +740,13 @@ const rejectedGuessCase = async ($: any, on: any, word: string, toast: string) =
   await type(word)
   await pane.input({ key: 'guess', text: word, kind: 'submit' } as any) // Enter
   expect(toasts.at(-1)).toBe(toast)
-  expect(await text()).toContain('Guess 1/6') // the rejected guess cost nothing
+  expect(await text()).toContain('GUESS 1 OF 6') // the rejected guess cost nothing
 
   // the letters stay in the draft and, once the field has been refilled, in the field
   await clock.advance(200)
   expect(await field()).toBe(word)
   const letters = [...word.toUpperCase()]
-  for (const ch of letters) expect(await text()).toContain(`"${ch}"`) // the row still shows every letter
+  expect((await rowOf(pane, 0)).map(t => t.text.replace('▌', '').trim()).join('')).toBe(letters.join('')) // the row still shows every letter
 
   // the player edits from there: one Backspace leaves all but the last letter
   await type(word.slice(0, -1))
@@ -602,7 +778,7 @@ test('after a rejected guess the player can finish the word and play it', async 
   await clock.advance(200)
   await type('plumb') // the player adds the missing letter, no retyping
   await enter('plumb')
-  expect(await text()).toContain('Guess 2/6')
+  expect(await text()).toContain('GUESS 2 OF 6')
 })
 
 // ---- root cause (from the live diagnostic log) ----
@@ -659,7 +835,7 @@ test('REPRO: 4 letters + Enter must leave the 4 letters in the field (live Test 
   await pressEnter()
 
   expect(toasts.at(-1)).toBe('Not enough letters')
-  expect(await text()).toContain('Guess 1/6')
+  expect(await text()).toContain('GUESS 1 OF 6')
   expect(model.local).toBe('moch') // the live bug: the field was left empty
 })
 
@@ -672,7 +848,7 @@ test('REPRO: after the rejected Enter, typing the missing letter completes the w
   await type('a') // the live bug: this turned the draft into just "a"
   expect(model.local).toBe('mocha')
   await pressEnter()
-  expect(await text()).toContain('Guess 2/6')
+  expect(await text()).toContain('GUESS 2 OF 6')
 })
 
 test('REPRO: a real non-word + Enter keeps the word, and Backspace edits it', async ($, on) => {

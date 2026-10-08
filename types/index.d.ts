@@ -31,12 +31,14 @@ declare module 'claude-code' {
       /** Letters typed toward the next guess (0-5, lowercase). */
       draft: string
       puzzle: WordlePuzzle | null
-      /** Mirror of the persisted `stats` record, for the stats pane. */
+      /** Mirror of the persisted `stats` record, for the stats row and HI-SCORE. */
       stats: WordleStats
-      /** Whether the separate stats pane is open (the main pane's toggle reads it). */
+      /** Whether the stats details (played, distribution, Clear stats) are open under the stats row. */
       isStatsOpen: boolean
-      /** The stats pane's clear button has been pressed once and awaits a second press. */
+      /** The Clear stats control has been pressed once and awaits a second press. */
       isConfirmingClear: boolean
+      /** Whether the typed-date field (behind DATE…) is shown. */
+      isDateEntryOpen: boolean
       /** True for a moment while the Guess field is drawn empty so it will take the draft again. */
       isFieldBlanked: boolean
       /** Frame of the win celebration; -1 when no animation is running. */
