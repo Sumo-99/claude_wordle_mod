@@ -46,6 +46,17 @@ What you found: clicking the on-screen **⌫** key didn't remove the last letter
 - [ ] The hint under the board now reads "type a word, Backspace to delete, Enter to guess".
 If Del-by-click still fails, or Enter still deletes sometimes, tell me which surface (terminal / Desktop) and exactly what you pressed in what order. (The automated tests can't see focus moves, so this one is purely a live check.)
 
+## Rejected guesses keep their letters
+*Fix confirmed live by you for the two main cases; the other boxes below are still open.*
+Real Wordle (checked against its original source code): a too-short word or a non-word shakes the row and shows a toast, **the typed letters stay**, and the guess doesn't count.
+Cause of our bug, found from a live diagnostic log: pressing Enter empties the Guess field itself, and the field only takes the value we give it when that value *changes*. After a rejected guess ours didn't change, so the field stayed empty while the draft lived on unseen, and your next keystroke replaced it. Fix: after a rejected Enter, and when a typed letter is trimmed (a 6th letter, a non-letter), the field is redrawn empty for ~60 ms and then with the draft, so it takes it.
+- [x] Type `MOCH` (4 letters), press Enter: toast "Not enough letters", and `MOCH` is **still in the Guess field** (and in the board row). Type `A`, press Enter: it submits `MOCHA`.
+- [x] Type `QXZVJ` (a real non-word — note `MOCHS` IS in the official allowed-guess list, so it's accepted), press Enter: toast "Not in word list", the word **stays**. Press Backspace once: it becomes `QXZV`; edit and Enter.
+- [ ] `Guess 1/6` is unchanged after a rejected guess (it cost nothing).
+- [ ] Type 6+ letters quickly: the field never shows more than 5 letters.
+- [ ] Same checks when the letters came from the on-screen keys, and when mixed with typing.
+- [ ] A deliberate clear (select all + delete) still empties the field and the row.
+
 ## Reset history command (`/wordle config reset-history`)
 Where the history lives: the plugin's `$.store` — `board:<date>` (each saved game), `word:<date>` (cached answers), `stats`, `config:autoOpen`. This command clears the first two.
 - [ ] Play a guess or two, then run `/wordle config reset-history`: it reports how many saved games it would delete and tells you to add `confirm`; nothing is deleted yet (the board is unchanged).

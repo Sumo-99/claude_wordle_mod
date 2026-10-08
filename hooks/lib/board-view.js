@@ -216,7 +216,7 @@ const statusLine = game =>
  * @param view `{ game, draft, puzzle, today, isStatsOpen, celebrationFrame, isMotionReduced, screen }`; `celebrationFrame` >= 0 shows the win screen instead of the board; `screen` is `{ columns, rows }`; `game` null means still loading
  * @param on `{ letter(ch), enter(), backspace(), input(text), pickDate(date), toggleStats(), fallbackInfo(), skipCelebration() }`
  */
-export const renderBoard = ({ h, Box, Text, Button, Input, Select }, { game, draft, puzzle, today, isStatsOpen, celebrationFrame, isMotionReduced, screen }, on) => {
+export const renderBoard = ({ h, Box, Text, Button, Input, Select }, { game, draft, puzzle, today, isStatsOpen, celebrationFrame, isMotionReduced, isFieldBlanked, screen }, on) => {
   if (celebrationFrame >= 0) return celebrationScreen(h, Box, Text, Button, celebrationFrame, screen, isMotionReduced, on)
   if (!game) return h(Box, { flexDirection: 'column' }, h(Text, null, 'Loading today’s puzzle…'))
 
@@ -282,7 +282,8 @@ export const renderBoard = ({ h, Box, Text, Button, Input, Select }, { game, dra
         key: 'guess',
         label: 'Guess: ',
         placeholder: 'type a word',
-        value: draft,
+        // drawn empty for a moment to make the field take the draft again (see resyncField)
+        value: isFieldBlanked ? '' : draft,
         autoFocus: true,
         submitLabel: 'guess',
         onInput: text => on.input(text),

@@ -37,6 +37,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     // typing in the field: it feeds the same draft, and deleting a character shortens it
     const typed = async (value: string) => {
       await pane.input({ key: 'guess', text: value, kind: 'change' } as any)
+      await clock.advance(100) // a trimmed edit refreshes the field a moment later
 
       return (await pane.find({ key: 'guess' } as any))?.props.value
     }
@@ -331,8 +332,9 @@ test('MOCHA on a practice date: the winning letters are never painted over', asy
 
 import { keyStates } from '../lib/board-view.js'
 
-const setupGame = async ($: any, on: any, opts: { now?: string; answers?: Record<string, string>; offline?: () => boolean; fallback?: string } = {}) => {
+const setupGame = async ($: any, on: any, opts: { now?: string; answers?: Record<string, string>; offline?: () => boolean; fallback?: string; toasts?: string[]; prepare?: (on: any) => void } = {}) => {
   mock.store(on)
+  opts.prepare?.(on) // hooks that must exist before the first engine call
   const clock = mock.clock(on, { now: Date.parse(opts.now ?? '2026-10-07T12:00:00') })
   on('http.fetch', async (_$: any, e: any) => {
     if (opts.offline?.()) throw new Error('offline')
@@ -343,7 +345,11 @@ const setupGame = async ($: any, on: any, opts: { now?: string; answers?: Record
   on('fs.read', async (_$: any, e: any) => ({
     value: String(e.path).endsWith('fallback-answers.txt') ? `${opts.fallback ?? 'crane'}\n` : 'crane\nprove\nslate\nbrick\nplumb\nmocha\n',
   }) as any)
-  on('ui.toast', async () => ({ value: undefined }) as any)
+  on('ui.toast', async (_$: any, e: any) => {
+    opts.toasts?.push(e.text)
+
+    return { value: undefined } as any
+  })
   const pane = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: {}, requestId: 'wordle' } as any)
   await clock.settle()
   await clock.settle()
@@ -486,6 +492,7 @@ test('Del really removes the last typed letter, and Enter on a short word keeps 
   await pane.press({ key: 'back' } as any)
   expect(await value()).toBe('cr')
   await pane.press({ key: 'enter' } as any) // too short: nothing submitted, draft kept
+  await clock.advance(200) // the field is redrawn with the draft a moment later
   expect(await value()).toBe('cr')
 })
 
@@ -544,4 +551,143 @@ test('/wordle config reset-history: asks first, then wipes games and words but k
   await clock.settle()
   expect(await text()).toContain('Guess 1/6')
   expect(await pane.find({ key: 'guess' } as any)).toBeDefined()
+})
+
+// ---- rejected guesses keep their letters (as in the real Wordle) ----
+
+const rejectedGuessCase = async ($: any, on: any, word: string, toast: string) => {
+  const toasts: string[] = []
+  const { pane, clock, text } = await setupGame($, on, { toasts })
+  const field = async () => (await pane.find({ key: 'guess' } as any))?.props.value
+  const type = (value: string) => pane.input({ key: 'guess', text: value, kind: 'change' } as any)
+
+  await type(word)
+  await pane.input({ key: 'guess', text: word, kind: 'submit' } as any) // Enter
+  expect(toasts.at(-1)).toBe(toast)
+  expect(await text()).toContain('Guess 1/6') // the rejected guess cost nothing
+
+  // the letters stay in the draft and, once the field has been refilled, in the field
+  await clock.advance(200)
+  expect(await field()).toBe(word)
+  const letters = [...word.toUpperCase()]
+  for (const ch of letters) expect(await text()).toContain(`"${ch}"`) // the row still shows every letter
+
+  // the player edits from there: one Backspace leaves all but the last letter
+  await type(word.slice(0, -1))
+  expect(await field()).toBe(word.slice(0, -1))
+
+  // and a deliberate clear later on (select-all, delete) is honoured, not swallowed
+  await clock.advance(1000)
+  await type('')
+  expect(await field()).toBe('')
+
+  return { pane, text }
+}
+
+test('4 of 5 letters + Enter: "Not enough letters", and the 4 letters stay', async ($, on) => {
+  await rejectedGuessCase($, on, 'moch', 'Not enough letters')
+})
+
+test('a 5-letter non-word + Enter: "Not in word list", and the word stays', async ($, on) => {
+  await rejectedGuessCase($, on, 'mochs', 'Not in word list')
+})
+
+test('after a rejected guess the player can finish the word and play it', async ($, on) => {
+  const { pane, clock, text } = await setupGame($, on) // answer: prove
+  const type = (value: string) => pane.input({ key: 'guess', text: value, kind: 'change' } as any)
+  const enter = (value: string) => pane.input({ key: 'guess', text: value, kind: 'submit' } as any)
+
+  await type('plum')
+  await enter('plum') // too short: the letters stay
+  await clock.advance(200)
+  await type('plumb') // the player adds the missing letter, no retyping
+  await enter('plumb')
+  expect(await text()).toContain('Guess 2/6')
+})
+
+// ---- root cause (from the live diagnostic log) ----
+// The Guess field (a) empties its own text when Enter is pressed and (b) adopts the
+// `value` prop only when the prop CHANGES between two drawings. After a rejected Enter
+// the draft is unchanged, so the prop was the same and the field stayed empty while the
+// draft ("moch") lived on invisibly; the next keystroke then overwrote it. The model
+// below behaves like that field, redrawing after every state write.
+
+const modelOfRealField = async ($: any, on: any, opts: { toasts?: string[] } = {}) => {
+  const model = { local: '', lastProp: '' }
+  const live: { redraw: () => Promise<void> } = { redraw: async () => {} }
+  const { pane, clock, text } = await setupGame($, on, {
+    toasts: opts.toasts,
+    prepare: (o: any) =>
+      o('state.set', async (_$: any, e: any, next: any) => {
+        const result = await next(e)
+        await live.redraw() // every state write redraws the pane
+
+        return result
+      }),
+  })
+  const propNow = async () => (await pane.find({ key: 'guess' } as any))?.props.value ?? ''
+  live.redraw = async () => {
+    const prop = await propNow()
+    if (prop !== model.lastProp) {
+      model.local = prop // a changed prop is adopted...
+      model.lastProp = prop
+    } // ...an unchanged one is ignored
+  }
+  const type = async (letters: string) => {
+    for (const ch of letters) {
+      model.local += ch
+      await pane.input({ key: 'guess', text: model.local, kind: 'change' } as any)
+      await clock.advance(100) // time passes between keystrokes
+    }
+  }
+  const pressEnter = async () => {
+    const submitted = model.local
+    model.local = '' // the field empties itself on Enter
+    await pane.input({ key: 'guess', text: submitted, kind: 'submit' } as any)
+    await clock.advance(200) // let any follow-up redraws land
+    await live.redraw()
+  }
+
+  return { pane, clock, text, model, type, pressEnter }
+}
+
+test('REPRO: 4 letters + Enter must leave the 4 letters in the field (live Test A)', async ($, on) => {
+  const toasts: string[] = []
+  const { model, type, pressEnter, text } = await modelOfRealField($, on, { toasts })
+
+  await type('moch')
+  await pressEnter()
+
+  expect(toasts.at(-1)).toBe('Not enough letters')
+  expect(await text()).toContain('Guess 1/6')
+  expect(model.local).toBe('moch') // the live bug: the field was left empty
+})
+
+test('REPRO: after the rejected Enter, typing the missing letter completes the word', async ($, on) => {
+  const toasts: string[] = []
+  const { model, type, pressEnter, text } = await modelOfRealField($, on, { toasts })
+
+  await type('moch')
+  await pressEnter()
+  await type('a') // the live bug: this turned the draft into just "a"
+  expect(model.local).toBe('mocha')
+  await pressEnter()
+  expect(await text()).toContain('Guess 2/6')
+})
+
+test('REPRO: a real non-word + Enter keeps the word, and Backspace edits it', async ($, on) => {
+  const toasts: string[] = []
+  const { model, type, pressEnter } = await modelOfRealField($, on, { toasts })
+
+  await type('qxzvj') // not in the word list ("mochs" is, which is why live Test B was accepted)
+  await pressEnter()
+  expect(toasts.at(-1)).toBe('Not in word list')
+  expect(model.local).toBe('qxzvj')
+})
+
+test('REPRO: letters typed past five are trimmed in the field too, not only in the draft', async ($, on) => {
+  const { model, type } = await modelOfRealField($, on)
+
+  await type('plumbs') // the live log: the field kept "ashdasid" while the draft stayed "ashda"
+  expect(model.local).toBe('plumb')
 })

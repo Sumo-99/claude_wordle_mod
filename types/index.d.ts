@@ -37,6 +37,8 @@ declare module 'claude-code' {
       isStatsOpen: boolean
       /** The stats pane's clear button has been pressed once and awaits a second press. */
       isConfirmingClear: boolean
+      /** True for a moment while the Guess field is drawn empty so it will take the draft again. */
+      isFieldBlanked: boolean
       /** Frame of the win celebration; -1 when no animation is running. */
       celebrationFrame: number
       /** The running celebration plays its reduced-motion version (a plain fade). */
