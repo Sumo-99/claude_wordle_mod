@@ -31,8 +31,10 @@ declare module 'claude-code' {
       /** Letters typed toward the next guess (0-5, lowercase). */
       draft: string
       puzzle: WordlePuzzle | null
-      /** Mirror of the persisted `stats` record, for the readout. */
+      /** Mirror of the persisted `stats` record, for the stats pane. */
       stats: WordleStats
+      /** Whether the separate stats pane is open (the main pane's toggle reads it). */
+      isStatsOpen: boolean
     }
   }
 }

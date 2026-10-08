@@ -68,10 +68,11 @@ test('stats count only today; an archived game is practice and today resumes', a
   on('ui.toast', async () => ({ value: undefined }) as any)
 
   const pane = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: {}, requestId: 'wordle' } as any)
+  const statsPane = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: {}, requestId: 'wordle-stats' } as any)
   await clock.settle()
   await clock.settle()
 
-  const everything = async () => JSON.stringify(await pane.drawn())
+  const everything = async () => JSON.stringify(await pane.drawn()) + JSON.stringify(await statsPane.drawn())
   const play = async (word: string) => {
     await pane.input({ key: 'guess', text: word, kind: 'change' } as any)
     await pane.input({ key: 'guess', text: word, kind: 'submit' } as any)
@@ -102,4 +103,40 @@ test('stats count only today; an archived game is practice and today resumes', a
   expect(await everything()).toContain('Solved in 2/6')
   expect(await everything()).not.toContain('Practice puzzle')
   expect(await everything()).toContain('Streak 1 · Max 1 · Played 1 · Win 100%')
+})
+
+test('the stats window is a separate pane opened and closed by a toggle', async ($, on) => {
+  mock.store(on)
+  const clock = mock.clock(on, { now: Date.parse('2026-10-07T12:00:00') })
+  on('http.fetch', async () => ({ value: ok({ solution: SOLUTION }) }))
+  on('fs.read', async () => ({ value: 'crane\nprove\n' }) as any)
+  on('ui.toast', async () => ({ value: undefined }) as any)
+  const opened: string[] = []
+  const closed: string[] = []
+  on('ui.open', async (_$, e) => {
+    opened.push(e.id)
+
+    return { value: undefined } as any
+  })
+  on('ui.close', async (_$, e) => {
+    closed.push(e.id)
+
+    return { value: undefined } as any
+  })
+
+  const pane = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: {}, requestId: 'wordle' } as any)
+  await clock.settle()
+  await clock.settle()
+
+  // the main pane carries no stats of its own, just the toggle
+  expect(JSON.stringify(await pane.drawn())).not.toContain('Streak')
+  expect((await pane.find({ key: 'stats-toggle' } as any))?.props.label).toBe('Stats')
+
+  await pane.press({ key: 'stats-toggle' } as any)
+  expect(opened).toEqual(['wordle-stats'])
+  expect((await pane.find({ key: 'stats-toggle' } as any))?.props.label).toBe('Hide stats')
+
+  await pane.press({ key: 'stats-toggle' } as any)
+  expect(closed).toEqual(['wordle-stats'])
+  expect((await pane.find({ key: 'stats-toggle' } as any))?.props.label).toBe('Stats')
 })

@@ -89,6 +89,10 @@ const statsBlock = (h, Box, Text, stats) => {
   )
 }
 
+/** The stats pane's tree: its own window, opened by the main pane's toggle. */
+export const renderStats = ({ h, Box, Text }, { stats }) =>
+  h(Box, { flexDirection: 'column', gap: 1 }, h(Text, { bold: true }, 'Wordle stats'), statsBlock(h, Box, Text, stats))
+
 /** The archive picker: a Select of recent days plus a free-entry date field. */
 const archiveBlock = (h, Box, Text, Select, Input, { puzzle, today }, on) => {
   const dates = recentDates(today)
@@ -129,10 +133,10 @@ const statusLine = game =>
  * this file never touches the engine's `$`.
  *
  * @param ui `{ h, Box, Text, Button, Input, Select }`
- * @param view `{ game, draft, puzzle, stats, today }`; `game` null means still loading
- * @param on `{ letter(ch), enter(), backspace(), input(text), pickDate(date), fallbackInfo() }`
+ * @param view `{ game, draft, puzzle, today, isStatsOpen }`; `game` null means still loading
+ * @param on `{ letter(ch), enter(), backspace(), input(text), pickDate(date), toggleStats(), fallbackInfo() }`
  */
-export const renderBoard = ({ h, Box, Text, Button, Input, Select }, { game, draft, puzzle, stats, today }, on) => {
+export const renderBoard = ({ h, Box, Text, Button, Input, Select }, { game, draft, puzzle, today, isStatsOpen }, on) => {
   if (!game) return h(Box, { flexDirection: 'column' }, h(Text, null, 'Loading today’s puzzle…'))
 
   const rows = Array.from({ length: MAX_GUESSES }, (_, r) => letterRow(h, Box, Text, game, draft, r))
@@ -153,7 +157,13 @@ export const renderBoard = ({ h, Box, Text, Button, Input, Select }, { game, dra
   return h(
     Box,
     { flexDirection: 'column', gap: 1 },
-    h(Box, { flexDirection: 'row', gap: 1 }, h(Text, { bold: true }, 'Wordle'), puzzle && h(Text, { dimColor: true }, puzzle.date)),
+    h(
+      Box,
+      { flexDirection: 'row', gap: 1 },
+      h(Text, { bold: true }, 'Wordle'),
+      puzzle && h(Text, { dimColor: true }, puzzle.date),
+      h(Button, { key: 'stats-toggle', label: isStatsOpen ? 'Hide stats' : 'Stats', onPress: () => on.toggleStats() }),
+    ),
     puzzle && !puzzle.isToday && h(Text, { color: 'warning' }, 'Practice puzzle — this game does not count toward your stats'),
     puzzle?.source === 'fallback' &&
       h(Button, { key: 'fallback-warning', label: '⚠ offline puzzle', onPress: () => on.fallbackInfo() }),
@@ -174,7 +184,6 @@ export const renderBoard = ({ h, Box, Text, Button, Input, Select }, { game, dra
       }),
     // keyboard and legend side by side, the legend toward the right
     h(Box, { flexDirection: 'row', gap: 4, alignItems: 'flex-end' }, h(Box, { flexDirection: 'column' }, ...keyboard), legend(h, Box, Text)),
-    statsBlock(h, Box, Text, stats),
     archiveBlock(h, Box, Text, Select, Input, { puzzle, today }, on),
   )
 }

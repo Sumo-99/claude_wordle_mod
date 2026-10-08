@@ -1,6 +1,6 @@
 import { atom, read, update } from 'claude-code'
 
-import { FALLBACK_NOTE, renderBoard } from './lib/board-view.js'
+import { FALLBACK_NOTE, renderBoard, renderStats } from './lib/board-view.js'
 import { boardKey, checkArchiveDate } from './lib/archive.js'
 import { AUTO_OPEN_KEY, describeAutoOpen, parseWordleArgs, USAGE } from './lib/lifecycle.js'
 import { createGame, submitGuess, WORD_LENGTH } from './lib/game-engine.js'
@@ -8,11 +8,13 @@ import { DEFAULT_STATS, loadStats, recordCompletion } from './lib/stats.js'
 import { isValidGuess, resolveWord } from './lib/word-source.js'
 
 const PANE = 'wordle'
+const STATS_PANE = 'wordle-stats'
 
 const game = atom({ plugin: 'wordle-mod', key: 'game' }, null)
 const draft = atom({ plugin: 'wordle-mod', key: 'draft' }, '')
 const puzzle = atom({ plugin: 'wordle-mod', key: 'puzzle' }, null)
 const stats = atom({ plugin: 'wordle-mod', key: 'stats' }, DEFAULT_STATS)
+const isStatsOpen = atom({ plugin: 'wordle-mod', key: 'isStatsOpen' }, false)
 
 // A plugin has one hooks module and the engine's `$` can't cross an import, so
 // everything that touches `$` lives here; lib/ is pure and takes closures.
@@ -110,6 +112,17 @@ const pickDate = async ($, input) => {
   await startDate($, check.date)
 }
 
+/** The stats window: a second pane, opened and closed by the main pane's toggle. */
+const toggleStats = async $ => {
+  if (await read($, isStatsOpen)) {
+    await $.ui.close({ id: STATS_PANE })
+    await update($, isStatsOpen, () => false)
+  } else {
+    await $.ui.open({ id: STATS_PANE, title: 'Wordle stats', closeOnEscape: true })
+    await update($, isStatsOpen, () => true)
+  }
+}
+
 /** @type {import('claude-code').Register} */
 export const register = on => {
   on('session.start', async ($, e, next) => {
@@ -150,15 +163,31 @@ export const register = on => {
     return next(e)
   })
 
+  // The person can close the stats window themselves (✕ / Esc): keep the toggle honest.
+  on('ui.close', async ($, e, next) => {
+    try {
+      if (e.id === STATS_PANE) await update($, isStatsOpen, () => false)
+    } catch {
+      // bookkeeping only: never get in the way of the person closing a pane
+    }
+
+    return next(e)
+  })
+
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
+    if (e.requestId === STATS_PANE) {
+      const { Box, Text } = $.ui.resolve(e)
+
+      return renderStats({ h, Box, Text }, { stats: await read($, stats) })
+    }
     if (e.requestId !== PANE) return next(e)
     const { Box, Text, Button, Input, Select } = $.ui.resolve(e)
     const view = {
       game: await read($, game),
       draft: await read($, draft),
       puzzle: await read($, puzzle),
-      stats: await read($, stats),
       today: await today($),
+      isStatsOpen: await read($, isStatsOpen),
     }
 
     if (!view.game && !isLoading) {
@@ -172,6 +201,7 @@ export const register = on => {
       backspace: () => backspace($),
       input: text => setDraft($, text),
       pickDate: value => pickDate($, value),
+      toggleStats: () => toggleStats($),
       fallbackInfo: () => $.ui.toast(FALLBACK_NOTE),
     })
   })

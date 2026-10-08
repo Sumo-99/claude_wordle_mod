@@ -43,13 +43,15 @@ claude plugin test .       # automated suite; should be all green
 
 ## Stage 06 — stats and archive
 Branch `stage-06-stats-and-archive`.
-- [ ] Finish today's puzzle (win or lose): the readout (`Streak · Max · Played · Win %` and the 1–6 bars) updates.
-- [ ] Pick a past day from the **Day:** list, play it to completion: a yellow "Practice puzzle" banner shows and the stats readout is **unchanged**.
+- [ ] The main pane has a **Stats** button in its header; pressing it opens a separate **Wordle stats** pane, and the button now reads **Hide stats** (press again to close). Closing the stats pane with ✕/Esc and pressing the button again reopens it.
+- [ ] Finish today's puzzle (win or lose): the stats pane (`Streak · Max · Played · Win %` and the 1–6 bars) updates live.
+- [ ] Pick a past day from the **Day:** list, play it to completion: a yellow "Practice puzzle" banner shows and the stats pane is **unchanged**.
 - [ ] Type an arbitrary date in **Or a date:** and press Enter: a past date starts that puzzle; a future date, a pre-2021-06-19 date, or garbage shows a toast and changes nothing.
 - [ ] Switch back to today (the `(today)` entry in the list): your earlier board is shown (finished or in progress), **not** a blank one.
 - [ ] Close and reopen the pane, and restart Claude Code: stats and each date's saved board are still there.
 - [ ] Focus: typing letters still goes to the **Guess:** field, and the date field only takes keys once you click into it.
-- [ ] Layout: the pane still reads well at your terminal height (it now holds board, keyboard, legend, stats and the archive picker). If it's cramped, tell me and I'll move the archive/stats behind a toggle.
+- [ ] Two panes: with both open, check each is usable (tab titles, sizing) in the terminal and the Desktop app, and that the stats pane doesn't steal the keyboard from the Guess field.
+- [ ] Layout: the main pane (board, keyboard, legend, archive picker) still reads well at your terminal height.
 
 ## Stage 07 — testing and polish
 - [ ] Full test suite green.
