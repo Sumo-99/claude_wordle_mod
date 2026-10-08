@@ -177,7 +177,7 @@ const statusLine = game =>
     ? `Solved in ${game.guesses.length}/${MAX_GUESSES} 🎉${NEXT_STEP}`
     : game.status === 'lost'
       ? `The word was ${game.answer.toUpperCase()}${NEXT_STEP}`
-      : `Guess ${game.guesses.length + 1}/${MAX_GUESSES} · Enter = ${ENTER_KEY}, ⌫ = ${BACKSPACE_KEY}`
+      : `Guess ${game.guesses.length + 1}/${MAX_GUESSES} · type a word, Backspace to delete, Enter to guess`
 
 /**
  * The pane's tree for one game state. Pure: the caller supplies the element
@@ -215,7 +215,7 @@ export const renderBoard = ({ h, Box, Text, Button, Input, Select }, { game, dra
     })
     if (i === 2) {
       keys.unshift(h(Button, { key: 'enter', label: 'Enter', hotkey: ENTER_KEY, variant: 'primary', onPress: () => on.enter() }))
-      keys.push(h(Button, { key: 'back', label: '⌫', hotkey: BACKSPACE_KEY, onPress: () => on.backspace() }))
+      keys.push(h(Button, { key: 'back', label: 'Del', hotkey: BACKSPACE_KEY, onPress: () => on.backspace() }))
     }
 
     return h(Box, { key: `krow${i}`, flexDirection: 'row', gap: 1 }, ...keys)

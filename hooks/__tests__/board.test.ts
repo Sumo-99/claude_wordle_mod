@@ -436,3 +436,61 @@ test('V2: an untouched offline day switches to the live word once it is reachabl
   expect(await text()).toContain('Guess 1/6')
   expect(await pane.find({ key: 'fallback-warning' } as any)).toBeUndefined()
 })
+
+// ---- on-screen keys hand the keyboard back to the Guess field ($.ui.focus) ----
+// The harness's pane never holds the keyboard, so the engine refuses the focus move
+// before any hook could see it: what can be checked here is that a refused move is
+// harmless and that the keys still do their job. The focus return itself is a live check.
+
+test('Del really removes the last typed letter, and Enter on a short word keeps the draft', async ($, on) => {
+  mock.store(on)
+  const clock = mock.clock(on, { now: Date.parse('2026-10-07T12:00:00') })
+  on('http.fetch', async () => ({ value: ok({ solution: SOLUTION }) }))
+  on('fs.read', async () => ({ value: 'crane\nprove\n' }) as any)
+  on('ui.toast', async () => ({ value: undefined }) as any)
+  on('ui.focus', async () => ({}) as any)
+
+  const pane = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: {}, requestId: 'wordle' } as any)
+  await clock.settle()
+  await clock.settle()
+  const value = async () => (await pane.find({ key: 'guess' } as any))?.props.value
+
+  for (const ch of 'cra') await pane.press({ key: `k-${ch}` } as any)
+  expect(await value()).toBe('cra')
+  await pane.press({ key: 'back' } as any)
+  expect(await value()).toBe('cr')
+  await pane.press({ key: 'enter' } as any) // too short: nothing submitted, draft kept
+  expect(await value()).toBe('cr')
+})
+
+test('a refused focus move never breaks a key press', async ($, on) => {
+  mock.store(on)
+  const clock = mock.clock(on, { now: Date.parse('2026-10-07T12:00:00') })
+  on('http.fetch', async () => ({ value: ok({ solution: SOLUTION }) }))
+  on('fs.read', async () => ({ value: 'crane\nprove\n' }) as any)
+  on('ui.toast', async () => ({ value: undefined }) as any)
+  on('ui.focus', async () => ({ deny: 'the pane does not hold the keyboard' }) as any)
+
+  const pane = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: {}, requestId: 'wordle' } as any)
+  await clock.settle()
+  await clock.settle()
+
+  await pane.press({ key: 'k-p' } as any)
+  await pane.press({ key: 'k-r' } as any)
+  expect((await pane.find({ key: 'guess' } as any))?.props.value).toBe('pr')
+})
+
+test('the delete key is labelled in plain text and the hint names the real keys', async ($, on) => {
+  mock.store(on)
+  const clock = mock.clock(on, { now: Date.parse('2026-10-07T12:00:00') })
+  on('http.fetch', async () => ({ value: ok({ solution: SOLUTION }) }))
+  on('fs.read', async () => ({ value: 'crane\nprove\n' }) as any)
+  on('ui.toast', async () => ({ value: undefined }) as any)
+  on('ui.focus', async () => ({}) as any)
+  const pane = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: {}, requestId: 'wordle' } as any)
+  await clock.settle()
+  await clock.settle()
+
+  expect((await pane.find({ key: 'back' } as any))?.props.label).toBe('Del')
+  expect(JSON.stringify(await pane.drawn())).toContain('Backspace to delete, Enter to guess')
+})

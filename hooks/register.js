@@ -68,6 +68,22 @@ const startDate = async ($, date) => {
   }
 }
 
+/**
+ * Gives the keyboard back to the Guess field. A click on an on-screen key leaves
+ * the focus ring on that key, and then Enter would press the key again (the
+ * Backspace key, say, deleting a letter instead of submitting) and a physical
+ * Backspace would do nothing. With the ring back on the field, Enter submits and
+ * Backspace edits it, whichever way the last letter went in. A refusal (the field
+ * is gone because the game is over, or the pane doesn't hold the keys) is fine.
+ */
+const focusGuess = async $ => {
+  try {
+    await $.ui.focus({ requestId: PANE, key: 'guess' })
+  } catch {
+    // focus is a convenience; never let it get in the way of a press
+  }
+}
+
 const typeLetter = async ($, letter) => {
   const g = await read($, game)
   if (!g || g.status !== 'playing') return
@@ -244,9 +260,18 @@ export const register = on => {
     }
 
     return renderBoard({ h, Box, Text, Button, Input, Select }, view, {
-      letter: ch => typeLetter($, ch),
-      enter: () => enter($),
-      backspace: () => backspace($),
+      letter: async ch => {
+        await typeLetter($, ch)
+        await focusGuess($)
+      },
+      enter: async () => {
+        await enter($)
+        await focusGuess($)
+      },
+      backspace: async () => {
+        await backspace($)
+        await focusGuess($)
+      },
       input: text => setDraft($, text),
       pickDate: value => pickDate($, value),
       toggleStats: () => toggleStats($),
