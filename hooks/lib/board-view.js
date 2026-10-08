@@ -116,7 +116,11 @@ const celebrationScreen = (h, Box, Text, Button, frame, screen, reducedMotion, o
       )
     : drawRow(last, rows.length)
 
-  return h(Box, { key: 'fireworks', flexDirection: 'column', width: columns }, ...rows.map(drawRow), skipRow)
+  return h(
+    Box,
+    { key: 'fireworks-wrap', flexDirection: 'column', alignItems: 'center' },
+    h(Box, { key: 'fireworks', flexDirection: 'column', width: columns }, ...rows.map(drawRow), skipRow),
+  )
 }
 
 const BAR_WIDTH = 10
