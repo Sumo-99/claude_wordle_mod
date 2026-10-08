@@ -3,8 +3,15 @@ import { WORD_LENGTH } from './game-engine.js'
 export const FALLBACK_NOTE = "Couldn't reach the live word — showing an offline puzzle instead."
 
 const MAX_GUESSES = 6
-const TILE = { green: '🟩', yellow: '🟨', gray: '⬜' }
-const EMPTY = '▫️·'
+// Theme keys, so the colors follow the person's theme. Every scored letter is
+// also underlined, which keeps a gray (absent) letter distinct from an unplayed
+// one and gives color-blind players a second cue besides the legend.
+const SCORE_COLOR = { green: 'success', yellow: 'warning', gray: 'inactive' }
+const LEGEND = [
+  ['green', 'right letter, right place'],
+  ['yellow', 'right letter, wrong place'],
+  ['gray', 'letter not in the word'],
+]
 const KEY_ROWS = ['qwertyuiop', 'asdfghjkl', 'zxcvbnm']
 
 // A hotkey is one digit or one lowercase letter, so Enter and Backspace sit on
@@ -26,13 +33,36 @@ const ruledOut = game => {
   return new Set([...seen].filter(ch => !kept.has(ch)))
 }
 
-const rowCells = (game, draft, r) => {
+/** One row of five letters: scored letters colored and underlined, typed ones plain. */
+const letterRow = (h, Box, Text, game, draft, r) => {
   const played = game.guesses[r]
-  if (played) return [...played.word].map((ch, i) => `${TILE[played.score[i]]}${ch.toUpperCase()}`)
   const isActive = r === game.guesses.length && game.status === 'playing'
+  const cells = Array.from({ length: WORD_LENGTH }, (_, i) => {
+    if (played) {
+      return h(Text, { key: i, bold: true, underline: true, color: SCORE_COLOR[played.score[i]] }, played.word[i].toUpperCase())
+    }
+    if (isActive && draft[i]) return h(Text, { key: i, bold: true }, draft[i].toUpperCase())
 
-  return Array.from({ length: WORD_LENGTH }, (_, i) => (isActive && draft[i] ? `▫️${draft[i].toUpperCase()}` : EMPTY))
+    return h(Text, { key: i, dimColor: true }, '·')
+  })
+
+  return h(Box, { key: `row${r}`, flexDirection: 'row', gap: 1 }, ...cells)
 }
+
+const legend = (h, Box, Text) =>
+  h(
+    Box,
+    { flexDirection: 'column' },
+    h(Text, { dimColor: true }, 'Legend'),
+    ...LEGEND.map(([score, meaning]) =>
+      h(
+        Box,
+        { key: `legend-${score}`, flexDirection: 'row', gap: 1 },
+        h(Text, { bold: true, underline: true, color: SCORE_COLOR[score] }, 'A'),
+        h(Text, null, meaning),
+      ),
+    ),
+  )
 
 const statusLine = game =>
   game.status === 'won'
@@ -46,16 +76,14 @@ const statusLine = game =>
  * factory `h`, the surface's `Box`/`Text`/`Button`, and the press callbacks, so
  * this file never touches the engine's `$`.
  *
- * @param ui `{ h, Box, Text, Button }`
+ * @param ui `{ h, Box, Text, Button, Input }`
  * @param view `{ game, draft, puzzle }`; `game` null means still loading
- * @param on `{ letter(ch), enter(), backspace(), fallbackInfo() }`
+ * @param on `{ letter(ch), enter(), backspace(), input(text), fallbackInfo() }`
  */
-export const renderBoard = ({ h, Box, Text, Button }, { game, draft, puzzle }, on) => {
+export const renderBoard = ({ h, Box, Text, Button, Input }, { game, draft, puzzle }, on) => {
   if (!game) return h(Box, { flexDirection: 'column' }, h(Text, null, 'Loading today’s puzzle…'))
 
-  const rows = Array.from({ length: MAX_GUESSES }, (_, r) =>
-    h(Text, { key: `row${r}` }, rowCells(game, draft, r).join(' ')),
-  )
+  const rows = Array.from({ length: MAX_GUESSES }, (_, r) => letterRow(h, Box, Text, game, draft, r))
 
   const gray = ruledOut(game)
   const keyboard = KEY_ROWS.map((row, i) => {
@@ -78,6 +106,20 @@ export const renderBoard = ({ h, Box, Text, Button }, { game, draft, puzzle }, o
       h(Button, { key: 'fallback-warning', label: '⚠ offline puzzle', onPress: () => on.fallbackInfo() }),
     h(Box, { flexDirection: 'column' }, ...rows),
     h(Text, { dimColor: true }, statusLine(game)),
-    h(Box, { flexDirection: 'column' }, ...keyboard),
+    // The typing surface: the field edits `draft` natively (Backspace deletes the
+    // last letter, Enter submits); the on-screen keys feed the same draft.
+    game.status === 'playing' &&
+      h(Input, {
+        key: 'guess',
+        label: 'Guess: ',
+        placeholder: 'type a word',
+        value: draft,
+        autoFocus: true,
+        submitLabel: 'guess',
+        onInput: text => on.input(text),
+        onSubmit: () => on.enter(),
+      }),
+    // keyboard and legend side by side, the legend toward the right
+    h(Box, { flexDirection: 'row', gap: 4, alignItems: 'flex-end' }, h(Box, { flexDirection: 'column' }, ...keyboard), legend(h, Box, Text)),
   )
 }

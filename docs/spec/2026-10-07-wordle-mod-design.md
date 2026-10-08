@@ -19,8 +19,10 @@ here first, then update the stages that depended on it.
 Both the CLI terminal and the Code tab of the Claude Desktop app. One
 codebase. Rendering must work identically on both, which rules out the
 `Raster` element (terminal-only) as the primary board renderer — the
-board is drawn with emoji/text tiles (🟩🟨⬜) instead, which render fine
-everywhere and need no surface-specific branching.
+board is drawn with plain `Text` letters instead — each scored letter
+colored (green / yellow / gray, via theme keys) and underlined, with a
+small legend beside the keyboard explaining the colors. This renders the
+same everywhere and needs no surface-specific branching.
 
 ## 2. Trigger model
 
@@ -139,7 +141,7 @@ its archive/practice modes.
   to the width gate in §2 — this is a platform rule, confirmed from docs,
   not a bug to work around.
 - `Raster` (colored-cell grid) is terminal-only — confirmed reason for
-  the emoji-tile decision in §1.
+  the plain-`Text` board decision in §1.
 
 ## 9. Explicitly out of scope (for this build)
 

@@ -53,6 +53,14 @@ const backspace = async $ => {
   await update($, draft, d => d.slice(0, -1))
 }
 
+/** The typing field's text, reduced to the draft: lowercase letters, at most five. */
+const setDraft = async ($, text) => {
+  const g = await read($, game)
+  if (!g || g.status !== 'playing') return
+  const letters = String(text).toLowerCase().replace(/[^a-z]/g, '').slice(0, WORD_LENGTH)
+  await update($, draft, () => letters)
+}
+
 const REASONS = { length: 'Not enough letters', invalid: 'Not in word list' }
 
 const enter = async $ => {
@@ -89,7 +97,7 @@ export const register = on => {
 
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
     if (e.requestId !== PANE) return next(e)
-    const { Box, Text, Button } = $.ui.resolve(e)
+    const { Box, Text, Button, Input } = $.ui.resolve(e)
     const view = { game: await read($, game), draft: await read($, draft), puzzle: await read($, puzzle) }
 
     if (!view.game && !isLoading) {
@@ -97,10 +105,11 @@ export const register = on => {
       $.clock.after(0, () => startToday($))
     }
 
-    return renderBoard({ h, Box, Text, Button }, view, {
+    return renderBoard({ h, Box, Text, Button, Input }, view, {
       letter: ch => typeLetter($, ch),
       enter: () => enter($),
       backspace: () => backspace($),
+      input: text => setDraft($, text),
       fallbackInfo: () => $.ui.toast(FALLBACK_NOTE),
     })
   })
