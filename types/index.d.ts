@@ -6,20 +6,33 @@ export type WordleGame = {
   status: 'playing' | 'won' | 'lost'
 }
 
-/** The day's puzzle: its date and where the word came from. */
+/** The active puzzle: its date, where the word came from, and whether it is today's. */
 export type WordlePuzzle = {
   date: string
   source: 'live' | 'fallback'
+  /** Only today's puzzle counts toward stats; any other date is practice. */
+  isToday: boolean
+}
+
+export type WordleStats = {
+  currentStreak: number
+  maxStreak: number
+  wins: number
+  played: number
+  /** distribution[n - 1] = wins that took n guesses. */
+  distribution: number[]
 }
 
 declare module 'claude-code' {
   interface PluginState {
     'wordle-mod': {
-      /** The game in play; null until the day's word has loaded. */
+      /** The game in play; null until the word has loaded. */
       game: WordleGame | null
       /** Letters typed toward the next guess (0-5, lowercase). */
       draft: string
       puzzle: WordlePuzzle | null
+      /** Mirror of the persisted `stats` record, for the readout. */
+      stats: WordleStats
     }
   }
 }

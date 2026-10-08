@@ -1,4 +1,6 @@
+import { recentDates } from './archive.js'
 import { WORD_LENGTH } from './game-engine.js'
+import { winPercent } from './stats.js'
 
 export const FALLBACK_NOTE = "Couldn't reach the live word — showing an offline puzzle instead."
 
@@ -64,6 +66,56 @@ const legend = (h, Box, Text) =>
     ),
   )
 
+const BAR_WIDTH = 10
+
+/** The stats readout: streaks, win %, and the guess-count distribution as bars. */
+const statsBlock = (h, Box, Text, stats) => {
+  const most = Math.max(1, ...stats.distribution)
+  const bars = stats.distribution.map((n, i) => {
+    const width = n === 0 ? 0 : Math.max(1, Math.round((n / most) * BAR_WIDTH))
+
+    return h(Text, { key: `dist${i}`, dimColor: n === 0 }, `${i + 1} ${'█'.repeat(width)} ${n}`)
+  })
+
+  return h(
+    Box,
+    { flexDirection: 'column' },
+    h(
+      Text,
+      { bold: true },
+      `Streak ${stats.currentStreak} · Max ${stats.maxStreak} · Played ${stats.played} · Win ${winPercent(stats)}%`,
+    ),
+    ...bars,
+  )
+}
+
+/** The archive picker: a Select of recent days plus a free-entry date field. */
+const archiveBlock = (h, Box, Text, Select, Input, { puzzle, today }, on) => {
+  const dates = recentDates(today)
+  const options = dates.map(date => ({ value: date, label: date === today ? `${date} (today)` : date }))
+
+  return h(
+    Box,
+    { flexDirection: 'column' },
+    h(Text, { dimColor: true }, 'Play another day (practice — not counted in stats)'),
+    h(Select, {
+      key: 'archive-pick',
+      label: 'Day: ',
+      options,
+      value: puzzle && dates.includes(puzzle.date) ? puzzle.date : today,
+      onSelect: value => on.pickDate(value),
+    }),
+    // no autoFocus: the guess field owns the keyboard, letters here would be lost guesses
+    h(Input, {
+      key: 'archive-date',
+      label: 'Or a date: ',
+      placeholder: 'YYYY-MM-DD',
+      submitLabel: 'play',
+      onSubmit: text => on.pickDate(text),
+    }),
+  )
+}
+
 const statusLine = game =>
   game.status === 'won'
     ? `Solved in ${game.guesses.length}/${MAX_GUESSES} 🎉`
@@ -76,11 +128,11 @@ const statusLine = game =>
  * factory `h`, the surface's `Box`/`Text`/`Button`, and the press callbacks, so
  * this file never touches the engine's `$`.
  *
- * @param ui `{ h, Box, Text, Button, Input }`
- * @param view `{ game, draft, puzzle }`; `game` null means still loading
- * @param on `{ letter(ch), enter(), backspace(), input(text), fallbackInfo() }`
+ * @param ui `{ h, Box, Text, Button, Input, Select }`
+ * @param view `{ game, draft, puzzle, stats, today }`; `game` null means still loading
+ * @param on `{ letter(ch), enter(), backspace(), input(text), pickDate(date), fallbackInfo() }`
  */
-export const renderBoard = ({ h, Box, Text, Button, Input }, { game, draft, puzzle }, on) => {
+export const renderBoard = ({ h, Box, Text, Button, Input, Select }, { game, draft, puzzle, stats, today }, on) => {
   if (!game) return h(Box, { flexDirection: 'column' }, h(Text, null, 'Loading today’s puzzle…'))
 
   const rows = Array.from({ length: MAX_GUESSES }, (_, r) => letterRow(h, Box, Text, game, draft, r))
@@ -102,6 +154,7 @@ export const renderBoard = ({ h, Box, Text, Button, Input }, { game, draft, puzz
     Box,
     { flexDirection: 'column', gap: 1 },
     h(Box, { flexDirection: 'row', gap: 1 }, h(Text, { bold: true }, 'Wordle'), puzzle && h(Text, { dimColor: true }, puzzle.date)),
+    puzzle && !puzzle.isToday && h(Text, { color: 'warning' }, 'Practice puzzle — this game does not count toward your stats'),
     puzzle?.source === 'fallback' &&
       h(Button, { key: 'fallback-warning', label: '⚠ offline puzzle', onPress: () => on.fallbackInfo() }),
     h(Box, { flexDirection: 'column' }, ...rows),
@@ -121,5 +174,7 @@ export const renderBoard = ({ h, Box, Text, Button, Input }, { game, draft, puzz
       }),
     // keyboard and legend side by side, the legend toward the right
     h(Box, { flexDirection: 'row', gap: 4, alignItems: 'flex-end' }, h(Box, { flexDirection: 'column' }, ...keyboard), legend(h, Box, Text)),
+    statsBlock(h, Box, Text, stats),
+    archiveBlock(h, Box, Text, Select, Input, { puzzle, today }, on),
   )
 }

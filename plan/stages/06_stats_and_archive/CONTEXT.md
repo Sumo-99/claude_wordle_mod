@@ -19,8 +19,15 @@ one new picker control.
 3. Stage `04` holds a single game in the `game`/`draft`/`puzzle` atoms, always for today. Generalize it so the active date can change: persist each date's game under `board:<date>` and load it when that date becomes active. Then add an archive picker to the pane: a `Select` (or a short list of `Button`s) of the last ~14 days, plus a free-text `Input` for an arbitrary `YYYY-MM-DD`. Stage `04`'s guess `Input` is `autoFocus` (letters typed there become guesses), so give the date `Input` no `autoFocus` and keep it visibly separate from the guess field. Selecting a date calls `resolveWord(io, thatDate)` and starts a fresh `createGame` against it, stored under `board:<date>` (so switching back to today later resumes where it was left).
 4. Add a small stats readout (`Text`) in the pane — current streak, win %, the distribution bars — pulling from `io.store.get('stats')`.
 
+## Built as
+- `hooks/lib/stats.js` — pure `applyCompletion`, `winPercent`, plus `loadStats`/`recordCompletion(io, …)` over `io.store`.
+- `hooks/lib/archive.js` — small date helpers (`recentDates`, `checkArchiveDate`, `boardKey`); the archive accepts dates from 2021-06-19 (launch) through today.
+- `register.js` — a `stats` atom and `puzzle.isToday`; `startDate` resumes a saved `board:<date>`; the `enter` handler saves the board after every guess and records stats only for a finished game of today.
+- `board-view.js` — the stats readout (streaks, win %, distribution bars), a `Select` of the last 14 days, a date `Input` (no `autoFocus`), and a "Practice puzzle" banner for non-today dates.
+- Tests: `stats.test.ts` (units) and a `board.test.ts` case that plays today, then a practice day, then returns to today.
+
 ## Outputs
-- `hooks/lib/stats.js`
+- `hooks/lib/stats.js`, `hooks/lib/archive.js`
 - Additions to `hooks/lib/board-view.js` (the archive picker and stats readout views) and `hooks/register.js` (their handlers).
 
 ## Human check

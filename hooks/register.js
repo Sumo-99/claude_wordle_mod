@@ -1,8 +1,10 @@
 import { atom, read, update } from 'claude-code'
 
 import { FALLBACK_NOTE, renderBoard } from './lib/board-view.js'
+import { boardKey, checkArchiveDate } from './lib/archive.js'
 import { AUTO_OPEN_KEY, describeAutoOpen, parseWordleArgs, USAGE } from './lib/lifecycle.js'
 import { createGame, submitGuess, WORD_LENGTH } from './lib/game-engine.js'
+import { DEFAULT_STATS, loadStats, recordCompletion } from './lib/stats.js'
 import { isValidGuess, resolveWord } from './lib/word-source.js'
 
 const PANE = 'wordle'
@@ -10,6 +12,7 @@ const PANE = 'wordle'
 const game = atom({ plugin: 'wordle-mod', key: 'game' }, null)
 const draft = atom({ plugin: 'wordle-mod', key: 'draft' }, '')
 const puzzle = atom({ plugin: 'wordle-mod', key: 'puzzle' }, null)
+const stats = atom({ plugin: 'wordle-mod', key: 'stats' }, DEFAULT_STATS)
 
 // A plugin has one hooks module and the engine's `$` can't cross an import, so
 // everything that touches `$` lives here; lib/ is pure and takes closures.
@@ -29,14 +32,23 @@ const today = async $ => {
 
 let isLoading = false
 
-/** Resolves today's word and starts a game. Runs from a timer, never from a draw. */
-const startToday = async $ => {
+/**
+ * Makes `date` the active puzzle: its word, and the saved board if that date was
+ * started before (so switching back resumes it). Runs from a timer or a handler,
+ * never from a draw.
+ */
+const startDate = async ($, date) => {
   try {
-    const date = await today($)
-    const { solution, source } = await resolveWord(makeIo($), date)
-    await update($, game, () => createGame(solution))
+    const io = makeIo($)
+    const { solution, source } = await resolveWord(io, date)
+    const saved = await io.store.get(boardKey(date))
+    const resumed = saved && saved.answer === solution ? saved : createGame(solution)
+    const isToday = date === (await today($))
+    const savedStats = await loadStats(io)
+    await update($, game, () => resumed)
     await update($, draft, () => '')
-    await update($, puzzle, () => ({ date, source }))
+    await update($, puzzle, () => ({ date, source, isToday }))
+    await update($, stats, () => savedStats)
   } catch {
     $.ui.toast('Could not start a puzzle.')
   } finally {
@@ -75,8 +87,27 @@ const enter = async $ => {
   if (!out.ok) return $.ui.toast(REASONS[out.reason] ?? 'Cannot play that')
   await update($, game, () => out.game)
   await update($, draft, () => '')
+  const active = await read($, puzzle)
+  if (active) await $.store.set(boardKey(active.date), out.game)
+  // Only a finished game of today's puzzle counts; practice dates never do. The
+  // game was 'playing' before this guess, so this fires once per game, and a
+  // finished board that is merely resumed later never reaches here.
+  if (out.game.status !== 'playing' && active?.isToday) {
+    const next = await recordCompletion(makeIo($), {
+      won: out.game.status === 'won',
+      guessCount: out.game.guesses.length,
+    })
+    await update($, stats, () => next)
+  }
   if (out.game.status === 'won') $.ui.toast(`Solved in ${out.game.guesses.length}!`)
   if (out.game.status === 'lost') $.ui.toast(`The word was ${out.game.answer.toUpperCase()}`)
+}
+
+/** Archive picker and date field: validate, then switch the active puzzle. */
+const pickDate = async ($, input) => {
+  const check = checkArchiveDate(input, await today($))
+  if (!check.ok) return $.ui.toast(check.reason)
+  await startDate($, check.date)
 }
 
 /** @type {import('claude-code').Register} */
@@ -121,19 +152,26 @@ export const register = on => {
 
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
     if (e.requestId !== PANE) return next(e)
-    const { Box, Text, Button, Input } = $.ui.resolve(e)
-    const view = { game: await read($, game), draft: await read($, draft), puzzle: await read($, puzzle) }
+    const { Box, Text, Button, Input, Select } = $.ui.resolve(e)
+    const view = {
+      game: await read($, game),
+      draft: await read($, draft),
+      puzzle: await read($, puzzle),
+      stats: await read($, stats),
+      today: await today($),
+    }
 
     if (!view.game && !isLoading) {
       isLoading = true
-      $.clock.after(0, () => startToday($))
+      $.clock.after(0, async () => startDate($, await today($)))
     }
 
-    return renderBoard({ h, Box, Text, Button, Input }, view, {
+    return renderBoard({ h, Box, Text, Button, Input, Select }, view, {
       letter: ch => typeLetter($, ch),
       enter: () => enter($),
       backspace: () => backspace($),
       input: text => setDraft($, text),
+      pickDate: value => pickDate($, value),
       fallbackInfo: () => $.ui.toast(FALLBACK_NOTE),
     })
   })

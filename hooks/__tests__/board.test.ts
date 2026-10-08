@@ -56,3 +56,50 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await text()).toContain('Solved in 2/6')
   })
 }
+
+test('stats count only today; an archived game is practice and today resumes', async ($, on) => {
+  mock.store(on)
+  const clock = mock.clock(on, { now: Date.parse('2026-10-07T12:00:00') })
+  const answers: Record<string, string> = { '2026-10-07': 'prove', '2026-10-06': 'crane' }
+  on('http.fetch', async (_$, e) => ({
+    value: ok({ solution: answers[e.url.match(/(\d{4}-\d{2}-\d{2})\.json$/)![1]] }),
+  }))
+  on('fs.read', async () => ({ value: 'crane\nprove\n' }) as any)
+  on('ui.toast', async () => ({ value: undefined }) as any)
+
+  const pane = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: {}, requestId: 'wordle' } as any)
+  await clock.settle()
+  await clock.settle()
+
+  const everything = async () => JSON.stringify(await pane.drawn())
+  const play = async (word: string) => {
+    await pane.input({ key: 'guess', text: word, kind: 'change' } as any)
+    await pane.input({ key: 'guess', text: word, kind: 'submit' } as any)
+  }
+  const pick = async (date: string) => {
+    await pane.select({ key: 'archive-pick', value: date } as any)
+    await clock.settle()
+    await clock.settle()
+  }
+
+  // lose nothing yet: stats start empty
+  expect(await everything()).toContain('Streak 0 · Max 0 · Played 0 · Win 0%')
+
+  // win today in two guesses
+  await play('crane')
+  await play('prove')
+  expect(await everything()).toContain('Streak 1 · Max 1 · Played 1 · Win 100%')
+
+  // an archived day is practice: solve it, stats unchanged, and it says so
+  await pick('2026-10-06')
+  expect(await everything()).toContain('Practice puzzle')
+  await play('crane')
+  expect(await everything()).toContain('Solved in 1/6')
+  expect(await everything()).toContain('Streak 1 · Max 1 · Played 1 · Win 100%')
+
+  // back to today: the finished board is shown, not a blank one, and stats did not double count
+  await pick('2026-10-07')
+  expect(await everything()).toContain('Solved in 2/6')
+  expect(await everything()).not.toContain('Practice puzzle')
+  expect(await everything()).toContain('Streak 1 · Max 1 · Played 1 · Win 100%')
+})
