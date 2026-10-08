@@ -11,19 +11,18 @@ a fresh checkout running, nothing more.
 Do NOT load: nothing is off-limits here — this is the integration stage.
 
 ## Process
-1. Using the mods test harness (`code.claude.com/docs/en/plugins/mods/test`), write tests under `hooks/__tests__/`:
-   - `word-source.test.js`: known-date resolutions, fallback-on-failure, cache behavior (from `02`'s human check, now automated).
-   - `game-engine.test.js`: the double-letter scoring cases and win/loss edges (from `03`'s human check, now automated).
-   - `lifecycle.test.js`: `turn.start` opens the pane when the flag is on and doesn't when it's off; nothing closes it on `turn.complete` (from `05`'s human check, now automated).
-   - `stats.test.js`: a completion updates stats; an archived-date completion doesn't (from `06`'s human check, now automated).
+1. Using the mods test harness (`code.claude.com/docs/en/plugins/mods/test`), write tests under `hooks/__tests__/` (the harness runs `*.test.ts`; stages `02`–`04` already added `word-source.test.ts`, `game-engine.test.ts` and `board.test.ts` — review them for gaps rather than rewriting, and add only what's missing):
+   - `word-source.test.ts` (exists): known-date resolutions, fallback-on-failure, cache behavior (from `02`'s human check, now automated).
+   - `game-engine.test.ts` (exists): the double-letter scoring cases and win/loss edges (from `03`'s human check, now automated).
+   - `lifecycle.test.ts` (new): `turn.start` opens the pane when the flag is on and doesn't when it's off; nothing closes it on `turn.complete` (from `05`'s human check, now automated).
+   - `stats.test.ts` (new): a completion updates stats; an archived-date completion doesn't (from `06`'s human check, now automated).
 2. Write `README.md` at repo root: what the mod does, how to load it (`claude --plugin-dir .`), the `/wordle` and `/wordle config` commands, and a one-line pointer to `docs/spec/` for anyone who wants the full design rationale.
 3. Run `claude plugin validate .` one more time against the finished plugin and resolve anything it flags.
 
 ## Outputs
-- `hooks/__tests__/word-source.test.js`
-- `hooks/__tests__/game-engine.test.js`
-- `hooks/__tests__/lifecycle.test.js`
-- `hooks/__tests__/stats.test.js`
+- `hooks/__tests__/word-source.test.ts`, `game-engine.test.ts`, `board.test.ts` (already present)
+- `hooks/__tests__/lifecycle.test.ts`
+- `hooks/__tests__/stats.test.ts`
 - `README.md`
 
 ## Human check
