@@ -1,6 +1,7 @@
 import { atom, read, update } from 'claude-code'
 
 import { FALLBACK_NOTE, renderBoard } from './lib/board-view.js'
+import { AUTO_OPEN_KEY, describeAutoOpen, parseWordleArgs, USAGE } from './lib/lifecycle.js'
 import { createGame, submitGuess, WORD_LENGTH } from './lib/game-engine.js'
 import { isValidGuess, resolveWord } from './lib/word-source.js'
 
@@ -89,10 +90,33 @@ export const register = on => {
     return next(e)
   })
 
-  on('command.run', { command: 'wordle' }, async $ => {
+  on('command.run', { command: 'wordle' }, async ($, e) => {
+    const cmd = parseWordleArgs(e.args)
+    if (cmd.kind === 'usage') return { text: USAGE }
+    if (cmd.kind === 'show-auto-open') return { text: describeAutoOpen((await $.store.get(AUTO_OPEN_KEY)) === true) }
+    if (cmd.kind === 'set-auto-open') {
+      await $.store.set(AUTO_OPEN_KEY, cmd.value)
+
+      return { text: describeAutoOpen(cmd.value) }
+    }
     await $.ui.open({ id: PANE, title: 'Wordle', focus: true, closeOnEscape: true })
 
     return { text: 'Wordle pane opened.' }
+  })
+
+  // Auto-open: only if the person turned it on. No `focus` (the mod opened it,
+  // not the person, so it must not take the keyboard from the next prompt), and
+  // there is deliberately no turn.complete hook: the pane never auto-closes.
+  on('turn.start', async ($, e, next) => {
+    try {
+      if ((await $.store.get(AUTO_OPEN_KEY)) === true) {
+        await $.ui.open({ id: PANE, title: 'Wordle', closeOnEscape: true })
+      }
+    } catch {
+      // a refused open must never get in the way of Claude's turn
+    }
+
+    return next(e)
   })
 
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
