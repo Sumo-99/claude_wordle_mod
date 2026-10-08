@@ -34,7 +34,7 @@ claude plugin test .       # automated suite; should be all green
 - [ ] Colors: green, yellow and gray are distinguishable in your theme (gray = the theme's `inactive`).
 - [ ] An invalid word shows "Not in word list" and stays in the field until backspaced; a short word shows "Not enough letters".
 
-## Stage 05 — lifecycle integration (branch `stage-05-lifecycle-integration`)
+## Stage 05 — lifecycle integration
 - [ ] `/wordle config auto-open on`, then send Claude a prompt that takes a few seconds: the pane opens by itself while Claude generates and **stays open** after the response finishes.
 - [ ] `/wordle config auto-open off`, send another prompt: the pane does **not** open on its own.
 - [ ] `/wordle` typed manually opens the pane immediately in both cases.
@@ -42,7 +42,7 @@ claude plugin test .       # automated suite; should be all green
 - [ ] Narrow terminal (< 144 columns) with auto-open on: the pane waits rather than opening (a platform rule, not a bug).
 
 ## Stage 06 — stats and archive
-Branch `stage-06-stats-and-archive`.
+Both stages 05 and 06 are on branch `remote-build-stages-05-07`.
 - [ ] The main pane has a **Stats** button in its header; pressing it opens a separate **Wordle stats** pane, and the button now reads **Hide stats** (press again to close). Closing the stats pane with ✕/Esc and pressing the button again reopens it.
 - [ ] Finish today's puzzle (win or lose): the stats pane (`Streak · Max · Played · Win %` and the 1–6 bars) updates live.
 - [ ] Pick a past day from the **Day:** list, play it to completion: a yellow "Practice puzzle" banner shows and the stats pane is **unchanged**.
