@@ -224,7 +224,7 @@ test('Clear stats needs two presses and resets the history', async ($, on) => {
   expect(await label()).toBe('Clear stats')
 })
 
-test('winning swaps the board for a 3 second gray fireworks screen, then the board returns', async ($, on) => {
+test('winning swaps the board for a 3 second red celebration screen, then the board returns', async ($, on) => {
   mock.store(on)
   const clock = mock.clock(on, { now: Date.parse('2026-10-07T12:00:00') })
   on('http.fetch', async () => ({ value: ok({ solution: SOLUTION }) }))
@@ -246,17 +246,20 @@ test('winning swaps the board for a 3 second gray fireworks screen, then the boa
   expect(await screen()).toBeUndefined()
   expect(await boardShown()).toBe(true)
 
-  // the winning guess replaces the whole board with the gray celebration screen
+  // the winning guess replaces the whole board with the red celebration screen
   await play('prove')
-  const started = await screen()
-  expect(started?.props.backgroundColor).toBe('gray')
+  expect(await screen()).toBeDefined()
+  expect(JSON.stringify(await pane.drawn())).toMatch(/"backgroundColor":"#[0-9a-f]{2}[0-9a-f]{4}"/)
   expect(await boardShown()).toBe(false) // no keyboard, no guess rows: nothing left to clip or cover
   const first = JSON.stringify(await pane.drawn())
 
   await clock.advance(1500)
   expect(await screen()).toBeDefined()
   expect(JSON.stringify(await pane.drawn())).not.toEqual(first) // it animates
-  expect(JSON.stringify(await pane.drawn())).toContain('"H"') // and says it
+  // and says it (the words are cut into runs wherever the colours under them change)
+  const text = [...JSON.stringify(await pane.drawn()).matchAll(/"children":\["([^"]*)"\]/g)].map(m => m[1]).join('')
+  expect(text).toContain('WORDDDD...')
+  expect(text).toContain('you solved it!')
 
   // still up just before 3 seconds, gone just after
   await clock.advance(1400)
@@ -267,6 +270,29 @@ test('winning swaps the board for a 3 second gray fireworks screen, then the boa
   // the finished game board is back, in full
   expect(await boardShown()).toBe(true)
   expect(JSON.stringify(await pane.drawn())).toContain('Solved in 2/6')
+})
+
+test('the continue control on the win screen goes straight back to the board', async ($, on) => {
+  mock.store(on)
+  const clock = mock.clock(on, { now: Date.parse('2026-10-07T12:00:00') })
+  on('http.fetch', async () => ({ value: ok({ solution: SOLUTION }) }))
+  on('fs.read', async () => ({ value: 'crane\nprove\n' }) as any)
+  on('ui.toast', async () => ({ value: undefined }) as any)
+
+  const pane = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: {}, requestId: 'wordle' } as any)
+  await clock.settle()
+  await clock.settle()
+  await pane.input({ key: 'guess', text: 'prove', kind: 'change' } as any)
+  await pane.input({ key: 'guess', text: 'prove', kind: 'submit' } as any)
+  await clock.advance(500)
+  expect(await pane.find({ key: 'fireworks' } as any)).toBeDefined()
+
+  await pane.press({ key: 'skip-celebration' } as any)
+  expect(await pane.find({ key: 'fireworks' } as any)).toBeUndefined()
+  expect(JSON.stringify(await pane.drawn())).toContain('Solved in 1/6')
+  // the stopped timer does not bring it back
+  await clock.advance(1000)
+  expect(await pane.find({ key: 'fireworks' } as any)).toBeUndefined()
 })
 
 test('MOCHA on a practice date: the winning letters are never painted over', async ($, on) => {

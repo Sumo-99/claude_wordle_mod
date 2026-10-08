@@ -1,5 +1,5 @@
 import { recentDates } from './archive.js'
-import { fireworkRows, HEIGHT, WIDTH } from './fireworks.js'
+import { celebrationRows, MIN_COLUMNS, MIN_ROWS } from './fireworks.js'
 import { WORD_LENGTH } from './game-engine.js'
 import { winPercent } from './stats.js'
 
@@ -67,33 +67,57 @@ const legend = (h, Box, Text) =>
     ),
   )
 
-const BACKDROP = 'gray'
+// The skip control, drawn plain (`1: continue`) on the bottom row of the red.
+const SKIP_LABEL = 'continue'
+const SKIP_TEXT = `${ENTER_KEY}: ${SKIP_LABEL}`
+
+/** The runs covering columns [from, to) of a row, cut at the ends. */
+const sliceRuns = (runs, from, to) => {
+  const out = []
+  let x = 0
+  for (const run of runs) {
+    const text = run.text.slice(Math.max(0, from - x), Math.max(0, to - x))
+    if (text) out.push({ ...run, text })
+    x += run.text.length
+  }
+
+  return out
+}
 
 /**
- * The win screen: while it runs it REPLACES the board. A gray backdrop fills the
- * pane and the fireworks are centered on it; when the frames run out the board
+ * The win screen: while it runs it REPLACES the board. Every cell of the pane is
+ * painted by `celebrationRows` (a red radial gradient with a turning sunburst,
+ * opening out from the centre, the burst and the words on top), and the bottom
+ * row holds a control that ends it early. When the frames run out the board
  * comes back. `screen` is `{ columns, rows }`, the room the pane has.
  */
-const celebrationScreen = (h, Box, Text, frame, screen) =>
-  h(
-    Box,
-    {
-      key: 'fireworks',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      width: Math.max(WIDTH, screen.columns),
-      height: Math.max(HEIGHT, screen.rows),
-      backgroundColor: BACKDROP,
-    },
-    ...fireworkRows(frame).map((runs, y) =>
-      h(
+const celebrationScreen = (h, Box, Text, Button, frame, screen, reducedMotion, on) => {
+  const columns = Math.max(MIN_COLUMNS, screen.columns)
+  const rows = celebrationRows(frame, { columns, rows: Math.max(MIN_ROWS, screen.rows) }, reducedMotion)
+  const drawRow = (runs, y) =>
+    h(
+      Box,
+      { key: `fw${y}`, flexDirection: 'row' },
+      ...runs.map((run, i) => h(Text, { key: i, color: run.color, bold: run.bold, backgroundColor: run.backgroundColor }, run.text)),
+    )
+  // the skip control sits centred in the last row, the gradient carrying on either side of it
+  const last = rows.pop()
+  const from = Math.floor((columns - SKIP_TEXT.length) / 2)
+  const isRed = last.some(run => run.backgroundColor)
+  const skipRow = isRed
+    ? h(
         Box,
-        { key: `fw${y}`, flexDirection: 'row' },
-        ...runs.map((run, i) => h(Text, { key: i, color: run.color, bold: run.bold, backgroundColor: BACKDROP }, run.text)),
-      ),
-    ),
-  )
+        { key: 'fw-skip', flexDirection: 'row' },
+        ...sliceRuns(last, 0, from).map((run, i) => h(Text, { key: `l${i}`, backgroundColor: run.backgroundColor }, run.text)),
+        h(Button, { key: 'skip-celebration', label: SKIP_LABEL, hotkey: ENTER_KEY, plain: true, onPress: () => on.skipCelebration() }),
+        ...sliceRuns(last, from + SKIP_TEXT.length, columns).map((run, i) =>
+          h(Text, { key: `r${i}`, backgroundColor: run.backgroundColor }, run.text),
+        ),
+      )
+    : drawRow(last, rows.length)
+
+  return h(Box, { key: 'fireworks', flexDirection: 'column', width: columns }, ...rows.map(drawRow), skipRow)
+}
 
 const BAR_WIDTH = 10
 
@@ -179,11 +203,11 @@ const statusLine = game =>
  * this file never touches the engine's `$`.
  *
  * @param ui `{ h, Box, Text, Button, Input, Select }`
- * @param view `{ game, draft, puzzle, today, isStatsOpen, celebrationFrame, screen }`; `celebrationFrame` >= 0 shows the win screen instead of the board; `screen` is `{ columns, rows }`; `game` null means still loading
- * @param on `{ letter(ch), enter(), backspace(), input(text), pickDate(date), toggleStats(), fallbackInfo() }`
+ * @param view `{ game, draft, puzzle, today, isStatsOpen, celebrationFrame, isMotionReduced, screen }`; `celebrationFrame` >= 0 shows the win screen instead of the board; `screen` is `{ columns, rows }`; `game` null means still loading
+ * @param on `{ letter(ch), enter(), backspace(), input(text), pickDate(date), toggleStats(), fallbackInfo(), skipCelebration() }`
  */
-export const renderBoard = ({ h, Box, Text, Button, Input, Select }, { game, draft, puzzle, today, isStatsOpen, celebrationFrame, screen }, on) => {
-  if (celebrationFrame >= 0) return celebrationScreen(h, Box, Text, celebrationFrame, screen)
+export const renderBoard = ({ h, Box, Text, Button, Input, Select }, { game, draft, puzzle, today, isStatsOpen, celebrationFrame, isMotionReduced, screen }, on) => {
+  if (celebrationFrame >= 0) return celebrationScreen(h, Box, Text, Button, celebrationFrame, screen, isMotionReduced, on)
   if (!game) return h(Box, { flexDirection: 'column' }, h(Text, null, 'Loading today’s puzzle…'))
 
   const rows = Array.from({ length: MAX_GUESSES }, (_, r) => letterRow(h, Box, Text, game, draft, r))

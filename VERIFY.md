@@ -34,10 +34,11 @@ claude plugin test .       # automated suite; should be all green
 - [ ] Colors: green, yellow and gray are distinguishable in your theme (gray = the theme's `inactive`).
 - [ ] An invalid word shows "Not in word list" and stays in the field until backspaced; a short word shows "Not enough letters".
 
-## Win fireworks (added after stage 07)
-- [ ] Win a puzzle: the whole game pane goes **gray and blank**, fireworks burst in the centre with a rainbow **H O O R A Y !**, it lasts about **3 seconds**, then the finished board comes back (with "Solved in N/6").
-- [ ] While it plays you see no board, keyboard, or Guess field — nothing is clipped, covered or cut off. If the gray doesn't fill the pane (a gap at the bottom or right), or the fireworks aren't centred, tell me your terminal size and which surface.
-- [ ] Gray backdrop is readable: spark colours stand out against it in your theme (light and dark).
+## Win celebration (added after stage 07)
+- [ ] Win a puzzle: red opens out **from the centre** to fill the whole pane (bright red middle, dark red edges, slowly turning rays), with 2–3 rings and a red/gold burst at the start. **WORDDDD...** pops in letter by letter (the extra Ds bounce), the screen gives a small shake, then **you solved it!** slides up with a pulsing glow. About **3 seconds**, then the finished board comes back (with "Solved in N/6").
+- [ ] While it plays you see no board, keyboard, or Guess field. If the red doesn't fill the pane (a gap at the bottom or right) or isn't centred, tell me your terminal size and which surface.
+- [ ] Win again (a practice date) and press `1` or click **continue** on the bottom row: the board comes back at once.
+- [ ] `/wordle config reduce-motion on`, then win a practice date: no rings, sparks or shake, the red just fades in with the words. `/wordle config reduce-motion off` restores the full version.
 - [ ] **The 5 Oct / MOCHA bug**: pick 2026-10-05 in the Day list, type MOCHA, press Enter. After the celebration the winning row shows all five letters M O C H A. If a letter is missing, tell me exactly when it disappears (before the celebration starts, during it, or after).
 - [ ] The animation does not play on a loss, on a wrong guess, or when you reopen an already-finished board; it does play for a practice-day win.
 - [ ] Looks right in both the terminal and the Desktop app and doesn't flicker or make the pane jump in size when it starts and ends.
