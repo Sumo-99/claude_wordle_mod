@@ -361,7 +361,7 @@ const controlsPanel = (h, ui, view, density, on) => {
     isDateEntryOpen &&
       h(Input, {
         key: 'archive-date',
-        label: 'DATE › ',
+        label: 'DATE', // the field draws its own colon after it
         placeholder: 'YYYY-MM-DD',
         submitLabel: 'play',
         onSubmit: text => on.pickDate(text),
