@@ -2,6 +2,7 @@ import { atom, read, update } from 'claude-code'
 
 import { FALLBACK_NOTE, renderBoard, renderStats } from './lib/board-view.js'
 import { boardKey, checkArchiveDate } from './lib/archive.js'
+import { FRAME_MS, TOTAL_FRAMES } from './lib/fireworks.js'
 import { AUTO_OPEN_KEY, describeAutoOpen, parseWordleArgs, USAGE } from './lib/lifecycle.js'
 import { createGame, submitGuess, WORD_LENGTH } from './lib/game-engine.js'
 import { DEFAULT_STATS, loadStats, recordCompletion, STATS_KEY } from './lib/stats.js'
@@ -16,6 +17,7 @@ const puzzle = atom({ plugin: 'wordle-mod', key: 'puzzle' }, null)
 const stats = atom({ plugin: 'wordle-mod', key: 'stats' }, DEFAULT_STATS)
 const isStatsOpen = atom({ plugin: 'wordle-mod', key: 'isStatsOpen' }, false)
 const isConfirmingClear = atom({ plugin: 'wordle-mod', key: 'isConfirmingClear' }, false)
+const celebrationFrame = atom({ plugin: 'wordle-mod', key: 'celebrationFrame' }, -1)
 
 const CLEAR_CONFIRM_MS = 5000
 
@@ -104,7 +106,10 @@ const enter = async $ => {
     })
     await update($, stats, () => next)
   }
-  if (out.game.status === 'won') $.ui.toast(`Solved in ${out.game.guesses.length}!`)
+  if (out.game.status === 'won') {
+    $.ui.toast(`Solved in ${out.game.guesses.length}!`)
+    await celebrate($)
+  }
   if (out.game.status === 'lost') $.ui.toast(`The word was ${out.game.answer.toUpperCase()}`)
 }
 
@@ -113,6 +118,19 @@ const pickDate = async ($, input) => {
   const check = checkArchiveDate(input, await today($))
   if (!check.ok) return $.ui.toast(check.reason)
   await startDate($, check.date)
+}
+
+/** Plays the win fireworks: a timer steps the frame until the animation ends. */
+const celebrate = async $ => {
+  if ((await read($, celebrationFrame)) >= 0) return
+  await update($, celebrationFrame, () => 0)
+  const timer = $.clock.every(FRAME_MS, async () => {
+    const frame = await update($, celebrationFrame, n => n + 1)
+    if (frame >= TOTAL_FRAMES) {
+      timer.cancel()
+      await update($, celebrationFrame, () => -1)
+    }
+  })
 }
 
 /**
@@ -210,6 +228,7 @@ export const register = on => {
       puzzle: await read($, puzzle),
       today: await today($),
       isStatsOpen: await read($, isStatsOpen),
+      celebrationFrame: await read($, celebrationFrame),
     }
 
     if (!view.game && !isLoading) {

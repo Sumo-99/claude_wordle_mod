@@ -37,6 +37,8 @@ declare module 'claude-code' {
       isStatsOpen: boolean
       /** The stats pane's clear button has been pressed once and awaits a second press. */
       isConfirmingClear: boolean
+      /** Frame of the win fireworks; -1 when no animation is running. */
+      celebrationFrame: number
     }
   }
 }

@@ -220,3 +220,82 @@ test('Clear stats needs two presses and resets the history', async ($, on) => {
   expect(toasts).toContain('Stats cleared.')
   expect(await label()).toBe('Clear stats')
 })
+
+test('winning plays the fireworks over the board and then they go away', async ($, on) => {
+  mock.store(on)
+  const clock = mock.clock(on, { now: Date.parse('2026-10-07T12:00:00') })
+  on('http.fetch', async () => ({ value: ok({ solution: SOLUTION }) }))
+  on('fs.read', async () => ({ value: 'crane\nprove\n' }) as any)
+  on('ui.toast', async () => ({ value: undefined }) as any)
+
+  const pane = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: {}, requestId: 'wordle' } as any)
+  await clock.settle()
+  await clock.settle()
+  const overlay = () => pane.find({ key: 'fireworks' } as any)
+  const play = async (word: string) => {
+    await pane.input({ key: 'guess', text: word, kind: 'change' } as any)
+    await pane.input({ key: 'guess', text: word, kind: 'submit' } as any)
+  }
+
+  // a wrong guess is no cause for celebration
+  await play('crane')
+  expect(await overlay()).toBeUndefined()
+
+  // the winning guess starts it, painted absolutely over the board
+  await play('prove')
+  const started = await overlay()
+  expect(started?.props.position).toBe('absolute')
+  const earlier = JSON.stringify(await pane.drawn())
+  await clock.advance(110 * 4)
+  expect(await overlay()).toBeDefined()
+  expect(JSON.stringify(await pane.drawn())).not.toEqual(earlier) // it animates
+  expect(JSON.stringify(await pane.drawn())).toContain('"H"') // and says it
+
+  // it ends by itself, leaving the finished board
+  await clock.advance(110 * 40)
+  expect(await overlay()).toBeUndefined()
+  expect(JSON.stringify(await pane.drawn())).toContain('Solved in 2/6')
+})
+
+test('regression: winning MOCHA on a practice date never paints sparks over its letters', async ($, on) => {
+  mock.store(on)
+  const clock = mock.clock(on, { now: Date.parse('2026-10-07T12:00:00') })
+  on('http.fetch', async (_$, e) => ({ value: ok({ solution: e.url.includes('2026-10-05') ? 'mocha' : SOLUTION }) }))
+  on('fs.read', async () => ({ value: 'crane\nprove\nmocha\n' }) as any)
+  on('ui.toast', async () => ({ value: undefined }) as any)
+
+  const pane = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: {}, requestId: 'wordle' } as any)
+  await clock.settle()
+  await clock.settle()
+  await pane.select({ key: 'archive-pick', value: '2026-10-05' } as any)
+  await clock.settle()
+  await clock.settle()
+  await pane.input({ key: 'guess', text: 'mocha', kind: 'change' } as any)
+  await pane.input({ key: 'guess', text: 'mocha', kind: 'submit' } as any)
+
+  // On a practice puzzle the layout is: header (y0), practice banner (y2), then the
+  // guess grid from y4, nine columns wide (x0-8, the fifth letter at x8).
+  const sparkCells = (tree: any): [number, number][] => {
+    const overlay = JSON.stringify(tree).includes('"fireworks"') ? findKey(tree, 'fireworks') : undefined
+    const cells: [number, number][] = []
+    for (const spark of overlay?.children ?? []) {
+      const text = spark.children?.[0]?.children?.[0] ?? ''
+      for (let i = 0; i < String(text).length; i++) cells.push([spark.props.left + i, spark.props.top])
+    }
+
+    return cells
+  }
+  const findKey = (node: any, key: string): any =>
+    node?.props?.key === key ? node : (node?.children ?? []).map((c: any) => (typeof c === 'object' ? findKey(c, key) : undefined)).find(Boolean)
+
+  let sawSparks = false
+  for (let frame = 0; frame < 26; frame++) {
+    for (const [x, y] of sparkCells(await pane.drawn())) {
+      sawSparks = true
+      expect(y === 0 || (x <= 8 && y >= 4 && y <= 9)).toBe(false) // header row and letter grid stay clear
+    }
+    await clock.advance(110)
+  }
+  expect(sawSparks).toBe(true)
+  expect(JSON.stringify(await pane.drawn())).toContain('Solved in 1/6')
+})

@@ -39,6 +39,8 @@ letter is colored **and underlined**:
 
 A legend beside the keyboard repeats this.
 
+Solve the puzzle and a short firework animation celebrates on top of the board.
+
 To enter a guess, either type into the **Guess:** field (Backspace deletes
 the last letter, Enter submits) or click the on-screen keyboard. The
 on-screen keys also have hotkeys: each letter is its own key, **1** is

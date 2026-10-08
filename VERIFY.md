@@ -34,6 +34,13 @@ claude plugin test .       # automated suite; should be all green
 - [ ] Colors: green, yellow and gray are distinguishable in your theme (gray = the theme's `inactive`).
 - [ ] An invalid word shows "Not in word list" and stays in the field until backspaced; a short word shows "Not enough letters".
 
+## Win fireworks (added after stage 07)
+- [ ] Win a puzzle: a ~2.5 s firework animation (colored sparks bursting outward) plays over the top of the board, a rainbow **H O O R A Y !** pops in, then everything disappears on its own, leaving the finished board.
+- [ ] **The 5 Oct / MOCHA bug**: pick 2026-10-05 in the Day list, type MOCHA, press Enter. All five letters of the winning row stay put through the whole animation (no A vanishing), the header row with the **Stats** button is never covered, and sparks only appear around the board, not on it. If a letter still disappears, tell me exactly when (during the animation, or right on Enter before it starts).
+- [ ] Looks right in both the terminal and the Desktop app; colors follow your theme; it doesn't flicker or make the pane jump.
+- [ ] It does not play on a loss, on a wrong guess, or when you reopen an already-finished board; it does play for a practice-day win.
+- [ ] Typing/clicking during the animation still works normally.
+
 ## Stage 05 — lifecycle integration
 - [ ] `/wordle config auto-open on`, then send Claude a prompt that takes a few seconds: the pane opens by itself while Claude generates and **stays open** after the response finishes.
 - [ ] `/wordle config auto-open off`, send another prompt: the pane does **not** open on its own.
