@@ -6,10 +6,12 @@ import { FRAME_MS, TOTAL_FRAMES } from './lib/fireworks.js'
 import {
   AUTO_OPEN_KEY,
   describeAutoOpen,
+  describeReduceMotion,
   describeResetAsk,
   describeResetDone,
   historyKeys,
   parseWordleArgs,
+  REDUCE_MOTION_KEY,
   USAGE,
 } from './lib/lifecycle.js'
 import { createGame, submitGuess, WORD_LENGTH } from './lib/game-engine.js'
@@ -26,6 +28,7 @@ const stats = atom({ plugin: 'wordle-mod', key: 'stats' }, DEFAULT_STATS)
 const isStatsOpen = atom({ plugin: 'wordle-mod', key: 'isStatsOpen' }, false)
 const isConfirmingClear = atom({ plugin: 'wordle-mod', key: 'isConfirmingClear' }, false)
 const celebrationFrame = atom({ plugin: 'wordle-mod', key: 'celebrationFrame' }, -1)
+const isMotionReduced = atom({ plugin: 'wordle-mod', key: 'isMotionReduced' }, false)
 
 const CLEAR_CONFIRM_MS = 5000
 
@@ -183,17 +186,34 @@ const pickDate = async ($, input) => {
   await startDate($, check.date)
 }
 
-/** Plays the win fireworks: a timer steps the frame until the animation ends. */
+let celebrationTimer = null
+
+/**
+ * Plays the win celebration: a timer steps the frame until the animation ends,
+ * or until `skipCelebration` cuts it short. Reads the reduced-motion setting
+ * once, as it starts.
+ */
 const celebrate = async $ => {
   if ((await read($, celebrationFrame)) >= 0) return
+  const isReduced = (await $.store.get(REDUCE_MOTION_KEY)) === true
+  await update($, isMotionReduced, () => isReduced)
   await update($, celebrationFrame, () => 0)
+  celebrationTimer?.cancel()
   const timer = $.clock.every(FRAME_MS, async () => {
-    const frame = await update($, celebrationFrame, n => n + 1)
-    if (frame >= TOTAL_FRAMES) {
+    const frame = await update($, celebrationFrame, n => (n < 0 ? n : n + 1))
+    if (frame < 0 || frame >= TOTAL_FRAMES) {
       timer.cancel()
       await update($, celebrationFrame, () => -1)
     }
   })
+  celebrationTimer = timer
+}
+
+/** The win screen's own control (a click, or the Enter hotkey): back to the board now. */
+const skipCelebration = async $ => {
+  celebrationTimer?.cancel()
+  celebrationTimer = null
+  await update($, celebrationFrame, () => -1)
 }
 
 /**
@@ -244,6 +264,12 @@ export const register = on => {
       await $.store.set(AUTO_OPEN_KEY, cmd.value)
 
       return { text: describeAutoOpen(cmd.value) }
+    }
+    if (cmd.kind === 'show-reduce-motion') return { text: describeReduceMotion((await $.store.get(REDUCE_MOTION_KEY)) === true) }
+    if (cmd.kind === 'set-reduce-motion') {
+      await $.store.set(REDUCE_MOTION_KEY, cmd.value)
+
+      return { text: describeReduceMotion(cmd.value) }
     }
     if (cmd.kind === 'reset-history-ask' || cmd.kind === 'reset-history') {
       const doomed = historyKeys(await $.store.keys())
@@ -305,6 +331,7 @@ export const register = on => {
       today: await today($),
       isStatsOpen: await read($, isStatsOpen),
       celebrationFrame: await read($, celebrationFrame),
+      isMotionReduced: await read($, isMotionReduced),
       isFieldBlanked: await read($, isFieldBlanked),
       // the win screen fills the pane: its width, and a height close to the board's own
       screen: { columns: e.bodyColumns ?? 40, rows: Math.min(26, Math.max(12, (e.viewport?.rows ?? 30) - 6)) },
@@ -333,6 +360,7 @@ export const register = on => {
       pickDate: value => pickDate($, value),
       toggleStats: () => toggleStats($),
       fallbackInfo: () => $.ui.toast(FALLBACK_NOTE),
+      skipCelebration: () => skipCelebration($),
     })
   })
 }

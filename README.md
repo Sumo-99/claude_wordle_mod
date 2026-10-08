@@ -40,7 +40,7 @@ letter is colored **and underlined**:
 
 A legend beside the keyboard repeats this.
 
-Solve the puzzle and the board gives way to a 3-second firework celebration on a gray screen, then comes back.
+Solve the puzzle and the board gives way to a 3-second red celebration — it opens out from the centre with shockwaves, a red-and-gold burst, a turning sunburst and **WORDDDD... / you solved it!** — then comes back (press `1` or click *continue* to skip). `/wordle config reduce-motion on` swaps it for a plain fade.
 
 To enter a guess, either type into the **Guess:** field (Backspace deletes
 the last letter, Enter submits) or click the on-screen keyboard. The

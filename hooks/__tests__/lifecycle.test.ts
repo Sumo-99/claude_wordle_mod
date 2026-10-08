@@ -11,6 +11,9 @@ test('parses /wordle arguments', () => {
   expect(parseWordleArgs('config auto-open maybe')).toEqual({ kind: 'usage' })
   expect(parseWordleArgs('config sound on')).toEqual({ kind: 'usage' })
   expect(parseWordleArgs('play')).toEqual({ kind: 'usage' })
+  expect(parseWordleArgs('config reduce-motion on')).toEqual({ kind: 'set-reduce-motion', value: true })
+  expect(parseWordleArgs('config reduce-motion')).toEqual({ kind: 'show-reduce-motion' })
+  expect(parseWordleArgs('config toString')).toEqual({ kind: 'usage' })
 })
 
 const setup = ($: any, on: any, store: Record<string, unknown> = {}) => {
