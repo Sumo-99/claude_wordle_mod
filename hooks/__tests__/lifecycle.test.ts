@@ -1,6 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { parseWordleArgs } from '../lib/lifecycle.js'
+import { historyKeys, parseWordleArgs } from '../lib/lifecycle.js'
 
 test('parses /wordle arguments', () => {
   expect(parseWordleArgs('')).toEqual({ kind: 'open' })
@@ -72,4 +72,18 @@ test('/wordle config auto-open on|off writes the flag, and /wordle opens with fo
   expect(((await run('')) as any).text).toContain('opened')
   expect(opens).toHaveLength(2)
   expect(opens[1].focus).toBe(true)
+})
+
+test('parses reset-history: it asks first, and only "confirm" deletes', () => {
+  expect(parseWordleArgs('config reset-history')).toEqual({ kind: 'reset-history-ask' })
+  expect(parseWordleArgs('config reset-history confirm')).toEqual({ kind: 'reset-history' })
+  expect(parseWordleArgs('  CONFIG Reset-History CONFIRM ')).toEqual({ kind: 'reset-history' })
+  expect(parseWordleArgs('config reset-history yes')).toEqual({ kind: 'usage' })
+  expect(parseWordleArgs('config reset-history confirm now')).toEqual({ kind: 'usage' })
+})
+
+test('reset-history touches only saved games and cached words', () => {
+  const keys = ['board:2026-10-07', 'word:2026-10-07', 'board:2026-10-06', 'stats', 'config:autoOpen']
+
+  expect(historyKeys(keys)).toEqual(['board:2026-10-07', 'word:2026-10-07', 'board:2026-10-06'])
 })

@@ -3,7 +3,17 @@ import { atom, read, update } from 'claude-code'
 import { FALLBACK_NOTE, renderBoard, renderStats } from './lib/board-view.js'
 import { boardKey, checkArchiveDate } from './lib/archive.js'
 import { FRAME_MS, TOTAL_FRAMES } from './lib/fireworks.js'
-import { AUTO_OPEN_KEY, describeAutoOpen, describeReduceMotion, parseWordleArgs, REDUCE_MOTION_KEY, USAGE } from './lib/lifecycle.js'
+import {
+  AUTO_OPEN_KEY,
+  describeAutoOpen,
+  describeReduceMotion,
+  describeResetAsk,
+  describeResetDone,
+  historyKeys,
+  parseWordleArgs,
+  REDUCE_MOTION_KEY,
+  USAGE,
+} from './lib/lifecycle.js'
 import { createGame, submitGuess, WORD_LENGTH } from './lib/game-engine.js'
 import { DEFAULT_STATS, loadStats, recordCompletion, STATS_KEY } from './lib/stats.js'
 import { isValidGuess, resolveWord } from './lib/word-source.js'
@@ -50,17 +60,38 @@ const startDate = async ($, date) => {
     const io = makeIo($)
     const { solution, source } = await resolveWord(io, date)
     const saved = await io.store.get(boardKey(date))
-    const resumed = saved && saved.answer === solution ? saved : createGame(solution)
+    // If this date was started on an offline word and the live word has since come
+    // back different, finish the game already in progress on the word it began with
+    // (still marked offline) rather than throwing the player's guesses away.
+    const keepSaved = saved && (saved.answer === solution || saved.guesses.length > 0)
+    const resumed = keepSaved ? saved : createGame(solution)
+    const shownSource = resumed.answer === solution ? source : 'fallback'
     const isToday = date === (await today($))
     const savedStats = await loadStats(io)
     await update($, game, () => resumed)
     await update($, draft, () => '')
-    await update($, puzzle, () => ({ date, source, isToday }))
+    await update($, puzzle, () => ({ date, source: shownSource, isToday }))
     await update($, stats, () => savedStats)
   } catch {
     $.ui.toast('Could not start a puzzle.')
   } finally {
     isLoading = false
+  }
+}
+
+/**
+ * Gives the keyboard back to the Guess field. A click on an on-screen key leaves
+ * the focus ring on that key, and then Enter would press the key again (the
+ * Backspace key, say, deleting a letter instead of submitting) and a physical
+ * Backspace would do nothing. With the ring back on the field, Enter submits and
+ * Backspace edits it, whichever way the last letter went in. A refusal (the field
+ * is gone because the game is over, or the pane doesn't hold the keys) is fine.
+ */
+const focusGuess = async $ => {
+  try {
+    await $.ui.focus({ requestId: PANE, key: 'guess' })
+  } catch {
+    // focus is a convenience; never let it get in the way of a press
   }
 }
 
@@ -100,7 +131,7 @@ const enter = async $ => {
   // Only a finished game of today's puzzle counts; practice dates never do. The
   // game was 'playing' before this guess, so this fires once per game, and a
   // finished board that is merely resumed later never reaches here.
-  if (out.game.status !== 'playing' && active?.isToday) {
+  if (out.game.status !== 'playing' && active && active.date === (await today($))) {
     const next = await recordCompletion(makeIo($), {
       won: out.game.status === 'won',
       guessCount: out.game.guesses.length,
@@ -206,6 +237,19 @@ export const register = on => {
 
       return { text: describeReduceMotion(cmd.value) }
     }
+    if (cmd.kind === 'reset-history-ask' || cmd.kind === 'reset-history') {
+      const doomed = historyKeys(await $.store.keys())
+      const games = doomed.filter(key => key.startsWith('board:')).length
+      if (cmd.kind === 'reset-history-ask') return { text: describeResetAsk(games) }
+
+      for (const key of doomed) await $.store.delete(key)
+      // the open game is history too: drop it so a pane that is showing it starts today afresh
+      await update($, game, () => null)
+      await update($, draft, () => '')
+      await update($, puzzle, () => null)
+
+      return { text: describeResetDone(games) }
+    }
     await $.ui.open({ id: PANE, title: 'Wordle', focus: true, closeOnEscape: true })
 
     return { text: 'Wordle pane opened.' }
@@ -264,9 +308,18 @@ export const register = on => {
     }
 
     return renderBoard({ h, Box, Text, Button, Input, Select }, view, {
-      letter: ch => typeLetter($, ch),
-      enter: () => enter($),
-      backspace: () => backspace($),
+      letter: async ch => {
+        await typeLetter($, ch)
+        await focusGuess($)
+      },
+      enter: async () => {
+        await enter($)
+        await focusGuess($)
+      },
+      backspace: async () => {
+        await backspace($)
+        await focusGuess($)
+      },
       input: text => setDraft($, text),
       pickDate: value => pickDate($, value),
       toggleStats: () => toggleStats($),

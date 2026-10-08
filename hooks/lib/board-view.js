@@ -22,18 +22,22 @@ const KEY_ROWS = ['qwertyuiop', 'asdfghjkl', 'zxcvbnm']
 export const ENTER_KEY = '1'
 export const BACKSPACE_KEY = '2'
 
-/** Letters ruled out so far: gray everywhere they appear. */
-const ruledOut = game => {
-  const seen = new Set()
-  const kept = new Set()
+const RANK = { gray: 1, yellow: 2, green: 3 }
+
+/**
+ * What the guesses have taught about each letter: the best result it has had.
+ * Green beats yellow beats gray, so a letter found in the right place stays
+ * green on the keyboard even if a later guess used it in the wrong spot.
+ */
+export const keyStates = game => {
+  const states = {}
   for (const { word, score } of game.guesses) {
     ;[...word].forEach((ch, i) => {
-      seen.add(ch)
-      if (score[i] !== 'gray') kept.add(ch)
+      if (!states[ch] || RANK[score[i]] > RANK[states[ch]]) states[ch] = score[i]
     })
   }
 
-  return new Set([...seen].filter(ch => !kept.has(ch)))
+  return states
 }
 
 /** One row of five letters: scored letters colored and underlined, typed ones plain. */
@@ -194,12 +198,14 @@ const archiveBlock = (h, Box, Text, Select, Input, { puzzle, today }, on) => {
   )
 }
 
+const NEXT_STEP = ' · Pick another day below to keep playing'
+
 const statusLine = game =>
   game.status === 'won'
-    ? `Solved in ${game.guesses.length}/${MAX_GUESSES} 🎉`
+    ? `Solved in ${game.guesses.length}/${MAX_GUESSES} 🎉${NEXT_STEP}`
     : game.status === 'lost'
-      ? `The word was ${game.answer.toUpperCase()}`
-      : `Guess ${game.guesses.length + 1}/${MAX_GUESSES} · Enter = ${ENTER_KEY}, ⌫ = ${BACKSPACE_KEY}`
+      ? `The word was ${game.answer.toUpperCase()}${NEXT_STEP}`
+      : `Guess ${game.guesses.length + 1}/${MAX_GUESSES} · type a word, Backspace to delete, Enter to guess`
 
 /**
  * The pane's tree for one game state. Pure: the caller supplies the element
@@ -216,14 +222,28 @@ export const renderBoard = ({ h, Box, Text, Button, Input, Select }, { game, dra
 
   const rows = Array.from({ length: MAX_GUESSES }, (_, r) => letterRow(h, Box, Text, game, draft, r))
 
-  const gray = ruledOut(game)
+  const states = keyStates(game)
+  const isOver = game.status !== 'playing'
   const keyboard = KEY_ROWS.map((row, i) => {
-    const keys = [...row].map(ch =>
-      h(Button, { key: `k-${ch}`, label: ch.toUpperCase(), hotkey: ch, dimColor: gray.has(ch), onPress: () => on.letter(ch) }),
-    )
+    const keys = [...row].map(ch => {
+      const state = states[ch]
+      const button = h(Button, {
+        key: `k-${ch}`,
+        label: ch.toUpperCase(),
+        hotkey: ch,
+        // gray (ruled out) keys fade; once the game is over every key fades
+        dimColor: isOver || state === 'gray',
+        onPress: () => on.letter(ch),
+      })
+
+      // found letters get a background in their result color, behind the key
+      return state === 'green' || state === 'yellow'
+        ? h(Box, { key: `kc-${ch}`, backgroundColor: SCORE_COLOR[state] }, button)
+        : button
+    })
     if (i === 2) {
       keys.unshift(h(Button, { key: 'enter', label: 'Enter', hotkey: ENTER_KEY, variant: 'primary', onPress: () => on.enter() }))
-      keys.push(h(Button, { key: 'back', label: '⌫', hotkey: BACKSPACE_KEY, onPress: () => on.backspace() }))
+      keys.push(h(Button, { key: 'back', label: 'Del', hotkey: BACKSPACE_KEY, onPress: () => on.backspace() }))
     }
 
     return h(Box, { key: `krow${i}`, flexDirection: 'row', gap: 1 }, ...keys)
@@ -239,7 +259,18 @@ export const renderBoard = ({ h, Box, Text, Button, Input, Select }, { game, dra
       puzzle && h(Text, { dimColor: true }, puzzle.date),
       h(Button, { key: 'stats-toggle', label: isStatsOpen ? 'Hide stats' : 'Stats', onPress: () => on.toggleStats() }),
     ),
-    puzzle && !puzzle.isToday && h(Text, { color: 'warning' }, 'Practice puzzle — this game does not count toward your stats'),
+    puzzle && puzzle.date !== today &&
+      h(
+        Text,
+        { color: 'warning' },
+        // `isToday` is what the puzzle was when it loaded: if the day has since rolled
+        // over, this is no longer today's puzzle even though it started as one
+        puzzle.isToday
+          ? `A new day has started — ${puzzle.date} is now practice and no longer counts toward your stats`
+          : 'Practice puzzle — this game does not count toward your stats',
+      ),
+    puzzle && puzzle.date !== today && puzzle.isToday &&
+      h(Button, { key: 'play-today', label: "▶ Play today's puzzle", variant: 'primary', onPress: () => on.pickDate(today) }),
     puzzle?.source === 'fallback' &&
       h(Button, { key: 'fallback-warning', label: '⚠ offline puzzle', onPress: () => on.fallbackInfo() }),
     h(Box, { flexDirection: 'column' }, ...rows),

@@ -22,6 +22,7 @@ Then type `/wordle`.
 | `/wordle config auto-open on` | Also open the pane automatically whenever Claude starts a turn. |
 | `/wordle config auto-open off` | Turn that off (the default). |
 | `/wordle config auto-open` | Show the current setting. |
+| `/wordle config reset-history` | Say how many saved games would be deleted. Add `confirm` to delete every saved game and cached word (stats and settings are kept; **Clear stats** resets those). |
 
 The pane never closes on its own. Close it with its ✕ or Esc. An
 auto-opened pane doesn't take the keyboard from your prompt, and the

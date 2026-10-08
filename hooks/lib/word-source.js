@@ -62,8 +62,9 @@ const fetchLive = async (io, dateStr) => {
 }
 
 /**
- * The answer for `dateStr` (YYYY-MM-DD): cached, else live from NYT, else a
- * deterministic offline word. Never throws for a network or schema problem.
+ * The answer for `dateStr` (YYYY-MM-DD): a cached live word, else live from NYT,
+ * else a deterministic offline word (retried live next time). Never throws for a
+ * network or schema problem.
  *
  * @returns {Promise<{ solution: string, source: 'live' | 'fallback' }>}
  */
@@ -73,19 +74,24 @@ export const resolveWord = async (io, dateStr) => {
   }
   const key = `word:${dateStr}`
   const cached = await io.store.get(key)
-  if (cached) return cached
+  // A live word is final. A cached fallback is only a stand-in, so every look at
+  // that date tries the live source again and upgrades the record if it answers.
+  if (cached?.source === 'live') return cached
 
-  let result
   try {
-    result = { solution: await fetchLive(io, dateStr), source: 'live' }
+    const result = { solution: await fetchLive(io, dateStr), source: 'live' }
+    await io.store.set(key, result)
+
+    return result
   } catch {
+    if (cached) return cached
     const list = await loadFallback(io)
     const index = ((daysSinceEpoch(dateStr) % list.length) + list.length) % list.length
-    result = { solution: list[index], source: 'fallback' }
-  }
-  await io.store.set(key, result)
+    const result = { solution: list[index], source: 'fallback' }
+    await io.store.set(key, result)
 
-  return result
+    return result
+  }
 }
 
 /** Whether `word` is an allowed guess (answers are included in the list). */
