@@ -334,8 +334,13 @@ export const register = on => {
       celebrationFrame: await read($, celebrationFrame),
       isMotionReduced: await read($, isMotionReduced),
       isFieldBlanked: await read($, isFieldBlanked),
-      // the win screen fills the pane: its width, and a height close to the board's own
-      screen: { columns: e.bodyColumns ?? 40, rows: Math.min(26, Math.max(12, (e.viewport?.rows ?? 30) - 6)) },
+      // the win screen fills the pane: the Pane's own width and row room (this build hands
+      // them over under `e.props`), the rows capped so the red stays about the board's height.
+      // It must not be taller than the room, or the `1: continue` row on its bottom is clipped.
+      screen: {
+        columns: e.props?.bodyColumns ?? e.viewport?.columns ?? 40,
+        rows: Math.min(26, e.props?.scroll?.bodyRows ?? Math.max(12, (e.viewport?.rows ?? 30) - 6)),
+      },
       // the board's room, which picks its layout: the Pane's own `bodyColumns` and
       // `scroll.bodyRows` (the room's rows), which this build hands over under `e.props`
       layout: {

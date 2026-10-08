@@ -867,3 +867,22 @@ test('REPRO: letters typed past five are trimmed in the field too, not only in t
   await type('plumbs') // the live log: the field kept "ashdasid" while the draft stayed "ashda"
   expect(model.local).toBe('plumb')
 })
+
+for (const [columns, bodyRows] of [
+  [96, 18], // an inline pane in an ordinary terminal
+  [60, 14],
+  [71, 42], // docked
+] as const) {
+  test(`the win screen fits a ${columns}x${bodyRows} pane: its width, and no taller, so the continue row stays in view`, async ($, on) => {
+    const { pane, clock } = await setupGame($, on)
+    await pane.unmount()
+    const ui = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: { bodyColumns: columns, scroll: { offset: 0, bodyRows } }, requestId: 'wordle' } as any)
+    await ui.input({ key: 'guess', text: 'prove', kind: 'change' } as any)
+    await ui.input({ key: 'guess', text: 'prove', kind: 'submit' } as any)
+    await clock.advance(500) // the red has opened out to the bottom row
+    const screen = await ui.find({ key: 'fireworks' } as any)
+    expect(screen?.props.width).toBe(columns)
+    expect(screen?.children.length).toBeLessThanOrEqual(bodyRows) // every row, the skip row last
+    expect(await ui.find({ key: 'skip-celebration' } as any)).toBeDefined()
+  })
+}

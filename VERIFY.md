@@ -146,6 +146,7 @@ Stats, stages, dates:
 
 Celebration:
 - [ ] Win a puzzle: the red celebration plays as before, then hands back to the **new** board (`SOLVED IN N/6`, colored tiles).
+- [ ] The red now fills the pane's width, and in an ordinary-height terminal (about 100×60) the **`1: continue`** row is visible on its bottom row, not cut off. Docked (fullscreen, 110+ columns) it also shows.
 
 Sizes:
 - [ ] ~100 columns in a tall pane (docked fullscreen ≥110 columns, or a very tall terminal): the full reference layout.
