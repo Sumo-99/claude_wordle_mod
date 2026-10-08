@@ -49,12 +49,17 @@ const startDate = async ($, date) => {
     const io = makeIo($)
     const { solution, source } = await resolveWord(io, date)
     const saved = await io.store.get(boardKey(date))
-    const resumed = saved && saved.answer === solution ? saved : createGame(solution)
+    // If this date was started on an offline word and the live word has since come
+    // back different, finish the game already in progress on the word it began with
+    // (still marked offline) rather than throwing the player's guesses away.
+    const keepSaved = saved && (saved.answer === solution || saved.guesses.length > 0)
+    const resumed = keepSaved ? saved : createGame(solution)
+    const shownSource = resumed.answer === solution ? source : 'fallback'
     const isToday = date === (await today($))
     const savedStats = await loadStats(io)
     await update($, game, () => resumed)
     await update($, draft, () => '')
-    await update($, puzzle, () => ({ date, source, isToday }))
+    await update($, puzzle, () => ({ date, source: shownSource, isToday }))
     await update($, stats, () => savedStats)
   } catch {
     $.ui.toast('Could not start a puzzle.')
@@ -99,7 +104,7 @@ const enter = async $ => {
   // Only a finished game of today's puzzle counts; practice dates never do. The
   // game was 'playing' before this guess, so this fires once per game, and a
   // finished board that is merely resumed later never reaches here.
-  if (out.game.status !== 'playing' && active?.isToday) {
+  if (out.game.status !== 'playing' && active && active.date === (await today($))) {
     const next = await recordCompletion(makeIo($), {
       won: out.game.status === 'won',
       guessCount: out.game.guesses.length,

@@ -300,3 +300,139 @@ test('MOCHA on a practice date: the winning letters are never painted over', asy
   for (const ch of ['M', 'O', 'C', 'H', 'A']) expect(tree).toContain(`"${ch}"`)
   expect(tree).toContain('Solved in 1/6')
 })
+
+// ---- V1: keyboard feedback, V2: offline word recovery, V3: end-of-game cue, V11: new day ----
+
+import { keyStates } from '../lib/board-view.js'
+
+const setupGame = async ($: any, on: any, opts: { now?: string; answers?: Record<string, string>; offline?: () => boolean; fallback?: string } = {}) => {
+  mock.store(on)
+  const clock = mock.clock(on, { now: Date.parse(opts.now ?? '2026-10-07T12:00:00') })
+  on('http.fetch', async (_$: any, e: any) => {
+    if (opts.offline?.()) throw new Error('offline')
+    const date = e.url.match(/(\d{4}-\d{2}-\d{2})\.json$/)![1]
+
+    return { value: ok({ solution: opts.answers?.[date] ?? SOLUTION }) }
+  })
+  on('fs.read', async (_$: any, e: any) => ({
+    value: String(e.path).endsWith('fallback-answers.txt') ? `${opts.fallback ?? 'crane'}\n` : 'crane\nprove\nslate\nbrick\nplumb\nmocha\n',
+  }) as any)
+  on('ui.toast', async () => ({ value: undefined }) as any)
+  const pane = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: {}, requestId: 'wordle' } as any)
+  await clock.settle()
+  await clock.settle()
+  const play = async (word: string) => {
+    await pane.input({ key: 'guess', text: word, kind: 'change' } as any)
+    await pane.input({ key: 'guess', text: word, kind: 'submit' } as any)
+  }
+  const text = async () => JSON.stringify(await pane.drawn())
+
+  return { pane, clock, play, text }
+}
+
+test('V1: a letter keeps the best result it has had (green beats yellow beats gray)', () => {
+  const guess = (word: string, score: string[]) => ({ word, score })
+  const states = keyStates({
+    answer: 'prove',
+    status: 'playing',
+    guesses: [guess('crane', ['gray', 'green', 'gray', 'gray', 'green']), guess('motor', ['gray', 'gray', 'gray', 'gray', 'yellow'])],
+  } as any)
+
+  expect(states.r).toBe('green') // yellow in guess 2 doesn't downgrade green from guess 1
+  expect(states.e).toBe('green')
+  expect(states.o).toBe('gray')
+  expect(states.z).toBeUndefined()
+})
+
+test('V1: the on-screen keys show what the guesses found', async ($, on) => {
+  const { pane, play } = await setupGame($, on) // answer: prove
+  await play('crane') // c a n gray, r e green
+
+  const box = (ch: string) => pane.find({ key: `kc-${ch}` } as any)
+  expect((await box('r'))?.props.backgroundColor).toBe('success')
+  expect((await box('e'))?.props.backgroundColor).toBe('success')
+  expect(await box('c')).toBeUndefined() // gray keys get no color background...
+  expect((await pane.find({ key: 'k-c' } as any))?.props.dimColor).toBe(true) // ...they fade
+  expect((await pane.find({ key: 'k-q' } as any))?.props.dimColor).toBe(false) // untouched keys stay normal
+})
+
+test('V3: when the game is over the keyboard fades and the status line says what to do next', async ($, on) => {
+  const { pane, play, text } = await setupGame($, on) // answer: prove
+  for (const word of ['crane', 'slate', 'brick', 'plumb', 'mocha', 'crane']) await play(word)
+
+  expect(await text()).toContain('The word was PROVE')
+  expect(await text()).toContain('Pick another day below')
+  for (const ch of ['q', 'a', 'z']) expect((await pane.find({ key: `k-${ch}` } as any))?.props.dimColor).toBe(true)
+  expect(await pane.find({ key: 'guess' } as any)).toBeUndefined() // the field is gone
+  expect(await pane.find({ key: 'archive-pick' } as any)).toBeDefined() // and the way to another day is right there
+})
+
+test('V11: after midnight the open puzzle is marked as old, offers today, and no longer counts', async ($, on) => {
+  const { pane, clock, play, text } = await setupGame($, on, { answers: { '2026-10-07': 'prove', '2026-10-08': 'slate' } })
+  const stats = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: {}, requestId: 'wordle-stats' } as any)
+  expect(await text()).not.toContain('A new day has started')
+
+  await clock.advance(24 * 3600 * 1000) // midnight passes with the pane open
+  await pane.input({ key: 'guess', text: 'c', kind: 'change' } as any) // any redraw
+  expect(await text()).toContain('A new day has started')
+  expect(await text()).toContain('2026-10-07 is now practice')
+  expect(await pane.find({ key: 'play-today' } as any)).toBeDefined()
+
+  // finishing the stale puzzle must not count as today's: lose it and look at the stats
+  await pane.input({ key: 'guess', text: '', kind: 'change' } as any)
+  for (const word of ['crane', 'slate', 'brick', 'plumb', 'mocha', 'crane']) await play(word)
+  expect(JSON.stringify(await stats.drawn())).toContain('Played 0')
+
+  // the button jumps to the new day's puzzle, fresh, and the old-day warning is gone
+  await pane.press({ key: 'play-today' } as any)
+  await clock.settle()
+  await clock.settle()
+  expect(await text()).toContain('2026-10-08')
+  expect(await text()).not.toContain('A new day has started')
+  expect(await pane.find({ key: 'play-today' } as any)).toBeUndefined()
+})
+
+test('V2: a game begun on the offline word finishes on it, even after the live word returns', async ($, on) => {
+  let isOffline = true
+  const { pane, clock, play, text } = await setupGame($, on, {
+    offline: () => isOffline,
+    fallback: 'crane',
+    answers: { '2026-10-07': 'slate', '2026-10-06': 'prove' },
+  })
+  expect(await pane.find({ key: 'fallback-warning' } as any)).toBeDefined() // offline puzzle, answer crane
+  await play('plumb') // one guess made against the offline word
+
+  await pane.select({ key: 'archive-pick', value: '2026-10-06' } as any) // go elsewhere (still offline)
+  await clock.settle()
+  await clock.settle()
+  isOffline = false // the network comes back; the live word for today is 'slate'
+  await pane.select({ key: 'archive-pick', value: '2026-10-07' } as any)
+  await clock.settle()
+  await clock.settle()
+
+  // progress is kept, on the word it started with, still flagged offline
+  expect(await text()).toContain('Guess 2/6')
+  expect(await pane.find({ key: 'fallback-warning' } as any)).toBeDefined()
+})
+
+test('V2: an untouched offline day switches to the live word once it is reachable', async ($, on) => {
+  let isOffline = true
+  const { pane, clock, text } = await setupGame($, on, {
+    offline: () => isOffline,
+    fallback: 'crane',
+    answers: { '2026-10-07': 'slate', '2026-10-06': 'prove' },
+  })
+  expect(await pane.find({ key: 'fallback-warning' } as any)).toBeDefined()
+
+  await pane.select({ key: 'archive-pick', value: '2026-10-06' } as any)
+  await clock.settle()
+  await clock.settle()
+  isOffline = false
+  await pane.select({ key: 'archive-pick', value: '2026-10-07' } as any)
+  await clock.settle()
+  await clock.settle()
+
+  // no guesses had been made, so nothing to protect: back to the real word, no marker
+  expect(await text()).toContain('Guess 1/6')
+  expect(await pane.find({ key: 'fallback-warning' } as any)).toBeUndefined()
+})

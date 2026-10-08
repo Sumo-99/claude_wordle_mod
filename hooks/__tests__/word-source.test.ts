@@ -51,14 +51,29 @@ test('resolves live answers and caches them', async () => {
   expect(data.get('word:2026-10-07')).toEqual({ solution: 'prove', source: 'live' })
 })
 
-test('falls back when the network rejects, and caches the result', async () => {
+test('falls back when the network rejects, and tries the live word again next time', async () => {
   const { io, calls } = makeIo(offline)
 
   const first = await resolveWord(io, '2026-10-07')
   expect(first.source).toBe('fallback')
   expect(first.solution).toMatch(/^[a-z]{5}$/)
+  // the same offline word every time, but each look retries live (a blip must not stick)
   expect(await resolveWord(io, '2026-10-07')).toEqual(first)
-  expect(calls.fetch).toBe(1)
+  expect(calls.fetch).toBe(2)
+})
+
+test('an offline word is upgraded once the live word is reachable, and a live word is final', async () => {
+  let isOnline = false
+  const { io, calls, data } = makeIo(async url => (isOnline ? live(url) : offline()))
+
+  expect((await resolveWord(io, '2026-10-07')).source).toBe('fallback')
+  isOnline = true
+  expect(await resolveWord(io, '2026-10-07')).toEqual({ solution: 'prove', source: 'live' })
+  expect(data.get('word:2026-10-07')).toEqual({ solution: 'prove', source: 'live' })
+
+  const fetched = calls.fetch
+  expect(await resolveWord(io, '2026-10-07')).toEqual({ solution: 'prove', source: 'live' })
+  expect(calls.fetch).toBe(fetched) // a live word is never fetched again
 })
 
 test('falls back on non-200 and on a missing solution field', async () => {

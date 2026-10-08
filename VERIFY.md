@@ -42,6 +42,12 @@ claude plugin test .       # automated suite; should be all green
 - [ ] The animation does not play on a loss, on a wrong guess, or when you reopen an already-finished board; it does play for a practice-day win.
 - [ ] Looks right in both the terminal and the Desktop app and doesn't flicker or make the pane jump in size when it starts and ends.
 
+## UX fixes (V1, V2, V3, V11 from the UX report)
+- [ ] **Keyboard colours (V1)**: after a guess, keys for green letters and yellow letters get a green / yellow background behind the key; gray letters fade. A letter found green stays green even if a later guess used it in the wrong spot. Check the background actually renders behind the key (terminal and Desktop app) and that green vs yellow is distinguishable in your theme. If the background doesn't show, tell me and I'll add a glyph marker instead.
+- [ ] **Offline word (V2)**: go offline, open `/wordle` (⚠ offline puzzle). Reconnect, close and reopen the pane (or pick another day and come back) *before guessing*: it now switches to the real word and the ⚠ marker disappears. If you had already made a guess on the offline word, that game keeps its offline word and the ⚠ stays, so your progress isn't lost.
+- [ ] **End of game (V3)**: after a win/loss the status line ends with "Pick another day below to keep playing", the on-screen keys all fade, and the Day list is right there.
+- [ ] **New day (V11)**: leave the pane open past midnight (or change your clock), then do anything in the pane: a yellow "A new day has started — <old date> is now practice…" line appears with a **▶ Play today's puzzle** button. Finishing the old puzzle does not change your stats. The button loads the new day's fresh puzzle and the warning goes away.
+
 ## Stage 05 — lifecycle integration
 - [ ] `/wordle config auto-open on`, then send Claude a prompt that takes a few seconds: the pane opens by itself while Claude generates and **stays open** after the response finishes.
 - [ ] `/wordle config auto-open off`, send another prompt: the pane does **not** open on its own.
@@ -61,6 +67,9 @@ Both stages 05 and 06 are on branch `remote-build-stages-05-07`.
 - [ ] Focus: typing letters still goes to the **Guess:** field, and the date field only takes keys once you click into it.
 - [ ] Two panes: with both open, check each is usable (tab titles, sizing) in the terminal and the Desktop app, and that the stats pane doesn't steal the keyboard from the Guess field.
 - [ ] Layout: the main pane (board, keyboard, legend, archive picker) still reads well at your terminal height.
+
+## Known open issues (not fixed yet — nothing to verify, just don't be surprised)
+From `report.md` (the UX playthrough): V6 streak doesn't reset after a missed day (needs your rule decision); V4 no notice on open that the puzzle is offline besides the ⚠ button; V5 a typed date older than 14 days leaves the Day picker showing today; V7 rapid extra Enters toast "Not enough letters"; V8 a missing word-list file leaves "Loading…" forever; polish: V9 Clear-stats timer, V10 draft lost on date switch, V12 cryptic "Enter = 1" hint, V13 losses not shown in stats, V14 impossible-date error wording, V15 `/wordle` says "opened" when already open.
 
 ## Stage 07 — testing and polish
 - [ ] `claude plugin test .` is all green (29 tests at the time of writing) and `claude plugin validate .` passes.
