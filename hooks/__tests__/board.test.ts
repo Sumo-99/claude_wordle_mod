@@ -140,3 +140,42 @@ test('the stats window is a separate pane opened and closed by a toggle', async 
   expect(closed).toEqual(['wordle-stats'])
   expect((await pane.find({ key: 'stats-toggle' } as any))?.props.label).toBe('Stats')
 })
+
+test('an offline puzzle shows the warning marker, and pressing it explains why', async ($, on) => {
+  mock.store(on)
+  const clock = mock.clock(on, { now: Date.parse('2026-10-07T12:00:00') })
+  on('http.fetch', async () => {
+    throw new Error('offline')
+  })
+  on('fs.read', async (_$, e) => ({
+    value: 'crane\nprove\n',
+  }) as any)
+  const toasts: string[] = []
+  on('ui.toast', async (_$, e) => {
+    toasts.push(e.text)
+
+    return { value: undefined } as any
+  })
+
+  const pane = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: {}, requestId: 'wordle' } as any)
+  await clock.settle()
+  await clock.settle()
+
+  const marker = await pane.find({ key: 'fallback-warning' } as any)
+  expect(marker?.props.label).toContain('offline puzzle')
+  await pane.press({ key: 'fallback-warning' } as any)
+  expect(toasts.at(-1)).toContain("Couldn't reach the live word")
+})
+
+test('a live puzzle has no warning marker', async ($, on) => {
+  mock.store(on)
+  const clock = mock.clock(on, { now: Date.parse('2026-10-07T12:00:00') })
+  on('http.fetch', async () => ({ value: ok({ solution: SOLUTION }) }))
+  on('fs.read', async () => ({ value: 'crane\nprove\n' }) as any)
+
+  const pane = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: {}, requestId: 'wordle' } as any)
+  await clock.settle()
+  await clock.settle()
+
+  expect(await pane.find({ key: 'fallback-warning' } as any)).toBeUndefined()
+})

@@ -19,6 +19,9 @@ Do NOT load: nothing is off-limits here — this is the integration stage.
 2. Write `README.md` at repo root: what the mod does, how to load it (`claude --plugin-dir .`), the `/wordle` and `/wordle config` commands, and a one-line pointer to `docs/spec/` for anyone who wants the full design rationale.
 3. Run `claude plugin validate .` one more time against the finished plugin and resolve anything it flags.
 
+## Built as
+All stage tests already existed except the board's fallback marker; this stage added that (`board.test.ts`: marker present on a fallback puzzle, absent on a live one) and the README. The human check below still applies.
+
 ## Outputs
 - `hooks/__tests__/word-source.test.ts`, `game-engine.test.ts`, `board.test.ts` (already present)
 - `hooks/__tests__/lifecycle.test.ts`

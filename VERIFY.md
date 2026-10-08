@@ -54,5 +54,5 @@ Both stages 05 and 06 are on branch `remote-build-stages-05-07`.
 - [ ] Layout: the main pane (board, keyboard, legend, archive picker) still reads well at your terminal height.
 
 ## Stage 07 — testing and polish
-- [ ] Full test suite green.
-- [ ] From a clean `git clone` in another directory, following only `README.md` gets `/wordle` working.
+- [ ] `claude plugin test .` is all green (29 tests at the time of writing) and `claude plugin validate .` passes.
+- [ ] From a clean `git clone` in another directory, following only `README.md` gets `/wordle` working. (Spot-check the README's claims too: the 1/2 hotkeys, the Stats button, the 14-day list, the 144-column note.)
