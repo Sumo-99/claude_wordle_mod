@@ -52,6 +52,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     for (let i = 0; i < 5; i++) await pane.press({ key: 'back' } as any)
     expect(await text()).not.toContain('▫️Z')
     await press('prove')
+    await clock.advance(3100) // the win screen covers the board for 3 seconds
     expect((await scored()).slice(5, 10)).toEqual(['P:success', 'R:success', 'O:success', 'V:success', 'E:success'])
     expect(await text()).toContain('Solved in 2/6')
   })
@@ -89,12 +90,14 @@ test('stats count only today; an archived game is practice and today resumes', a
   // win today in two guesses
   await play('crane')
   await play('prove')
+  await clock.advance(3100) // the win screen covers the board for 3 seconds
   expect(await everything()).toContain('Streak 1 · Max 1 · Played 1 · Win 100%')
 
   // an archived day is practice: solve it, stats unchanged, and it says so
   await pick('2026-10-06')
   expect(await everything()).toContain('Practice puzzle')
   await play('crane')
+  await clock.advance(3100)
   expect(await everything()).toContain('Solved in 1/6')
   expect(await everything()).toContain('Streak 1 · Max 1 · Played 1 · Win 100%')
 
@@ -221,7 +224,7 @@ test('Clear stats needs two presses and resets the history', async ($, on) => {
   expect(await label()).toBe('Clear stats')
 })
 
-test('winning plays the fireworks over the board and then they go away', async ($, on) => {
+test('winning swaps the board for a 3 second gray fireworks screen, then the board returns', async ($, on) => {
   mock.store(on)
   const clock = mock.clock(on, { now: Date.parse('2026-10-07T12:00:00') })
   on('http.fetch', async () => ({ value: ok({ solution: SOLUTION }) }))
@@ -231,7 +234,8 @@ test('winning plays the fireworks over the board and then they go away', async (
   const pane = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: {}, requestId: 'wordle' } as any)
   await clock.settle()
   await clock.settle()
-  const overlay = () => pane.find({ key: 'fireworks' } as any)
+  const screen = () => pane.find({ key: 'fireworks' } as any)
+  const boardShown = async () => (await pane.find({ key: 'k-q' } as any)) !== undefined
   const play = async (word: string) => {
     await pane.input({ key: 'guess', text: word, kind: 'change' } as any)
     await pane.input({ key: 'guess', text: word, kind: 'submit' } as any)
@@ -239,25 +243,33 @@ test('winning plays the fireworks over the board and then they go away', async (
 
   // a wrong guess is no cause for celebration
   await play('crane')
-  expect(await overlay()).toBeUndefined()
+  expect(await screen()).toBeUndefined()
+  expect(await boardShown()).toBe(true)
 
-  // the winning guess starts it, painted absolutely over the board
+  // the winning guess replaces the whole board with the gray celebration screen
   await play('prove')
-  const started = await overlay()
-  expect(started?.props.position).toBe('absolute')
-  const earlier = JSON.stringify(await pane.drawn())
-  await clock.advance(110 * 4)
-  expect(await overlay()).toBeDefined()
-  expect(JSON.stringify(await pane.drawn())).not.toEqual(earlier) // it animates
+  const started = await screen()
+  expect(started?.props.backgroundColor).toBe('gray')
+  expect(await boardShown()).toBe(false) // no keyboard, no guess rows: nothing left to clip or cover
+  const first = JSON.stringify(await pane.drawn())
+
+  await clock.advance(1500)
+  expect(await screen()).toBeDefined()
+  expect(JSON.stringify(await pane.drawn())).not.toEqual(first) // it animates
   expect(JSON.stringify(await pane.drawn())).toContain('"H"') // and says it
 
-  // it ends by itself, leaving the finished board
-  await clock.advance(110 * 40)
-  expect(await overlay()).toBeUndefined()
+  // still up just before 3 seconds, gone just after
+  await clock.advance(1400)
+  expect(await screen()).toBeDefined()
+  await clock.advance(300)
+  expect(await screen()).toBeUndefined()
+
+  // the finished game board is back, in full
+  expect(await boardShown()).toBe(true)
   expect(JSON.stringify(await pane.drawn())).toContain('Solved in 2/6')
 })
 
-test('regression: winning MOCHA on a practice date never paints sparks over its letters', async ($, on) => {
+test('MOCHA on a practice date: the winning letters are never painted over', async ($, on) => {
   mock.store(on)
   const clock = mock.clock(on, { now: Date.parse('2026-10-07T12:00:00') })
   on('http.fetch', async (_$, e) => ({ value: ok({ solution: e.url.includes('2026-10-05') ? 'mocha' : SOLUTION }) }))
@@ -273,29 +285,18 @@ test('regression: winning MOCHA on a practice date never paints sparks over its 
   await pane.input({ key: 'guess', text: 'mocha', kind: 'change' } as any)
   await pane.input({ key: 'guess', text: 'mocha', kind: 'submit' } as any)
 
-  // On a practice puzzle the layout is: header (y0), practice banner (y2), then the
-  // guess grid from y4, nine columns wide (x0-8, the fifth letter at x8).
-  const sparkCells = (tree: any): [number, number][] => {
-    const overlay = JSON.stringify(tree).includes('"fireworks"') ? findKey(tree, 'fireworks') : undefined
-    const cells: [number, number][] = []
-    for (const spark of overlay?.children ?? []) {
-      const text = spark.children?.[0]?.children?.[0] ?? ''
-      for (let i = 0; i < String(text).length; i++) cells.push([spark.props.left + i, spark.props.top])
-    }
-
-    return cells
+  // during the animation the board is replaced outright: no overlay exists to cover a letter
+  for (let i = 0; i < 28; i++) {
+    expect(await pane.find({ key: 'fireworks' } as any)).toBeDefined()
+    expect(await pane.find({ key: 'row0' } as any)).toBeUndefined()
+    await clock.advance(100)
   }
-  const findKey = (node: any, key: string): any =>
-    node?.props?.key === key ? node : (node?.children ?? []).map((c: any) => (typeof c === 'object' ? findKey(c, key) : undefined)).find(Boolean)
+  await clock.advance(300)
 
-  let sawSparks = false
-  for (let frame = 0; frame < 26; frame++) {
-    for (const [x, y] of sparkCells(await pane.drawn())) {
-      sawSparks = true
-      expect(y === 0 || (x <= 8 && y >= 4 && y <= 9)).toBe(false) // header row and letter grid stay clear
-    }
-    await clock.advance(110)
-  }
-  expect(sawSparks).toBe(true)
-  expect(JSON.stringify(await pane.drawn())).toContain('Solved in 1/6')
+  // afterwards the winning row is intact: M O C H A
+  const row = await pane.find({ key: 'row0' } as any)
+  expect(row).toBeDefined()
+  const tree = JSON.stringify(await pane.drawn())
+  for (const ch of ['M', 'O', 'C', 'H', 'A']) expect(tree).toContain(`"${ch}"`)
+  expect(tree).toContain('Solved in 1/6')
 })

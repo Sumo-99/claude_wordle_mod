@@ -39,7 +39,7 @@ letter is colored **and underlined**:
 
 A legend beside the keyboard repeats this.
 
-Solve the puzzle and a short firework animation celebrates on top of the board.
+Solve the puzzle and the board gives way to a 3-second firework celebration on a gray screen, then comes back.
 
 To enter a guess, either type into the **Guess:** field (Backspace deletes
 the last letter, Enter submits) or click the on-screen keyboard. The

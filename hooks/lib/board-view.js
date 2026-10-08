@@ -1,5 +1,5 @@
 import { recentDates } from './archive.js'
-import { fireworkRuns, HEIGHT, WIDTH } from './fireworks.js'
+import { fireworkRows, HEIGHT, WIDTH } from './fireworks.js'
 import { WORD_LENGTH } from './game-engine.js'
 import { winPercent } from './stats.js'
 
@@ -67,32 +67,33 @@ const legend = (h, Box, Text) =>
     ),
   )
 
-/** The win animation, painted over the top of the board while `frame` runs. */
-const fireworks = (h, Box, Text, frame, keepClear) =>
-  h(
-    Box,
-    { key: 'fireworks', position: 'absolute', top: 0, left: 0, width: WIDTH, height: HEIGHT },
-    // each spark is its own absolutely placed run: nothing blank is painted, so the
-    // board shows through everywhere except under an actual spark
-    ...fireworkRuns(frame, keepClear).map((run, i) =>
-      h(Box, { key: `fw${i}`, position: 'absolute', top: run.y, left: run.x }, h(Text, { color: run.color, bold: run.bold }, run.text)),
-    ),
-  )
+const BACKDROP = 'gray'
 
 /**
- * Rectangles the fireworks must stay off: the header row (title, date, Stats
- * button) and the grid of guess letters, whose top depends on the rows above it
- * (header, then the practice banner and fallback marker when shown; one blank
- * row between each).
+ * The win screen: while it runs it REPLACES the board. A gray backdrop fills the
+ * pane and the fireworks are centered on it; when the frames run out the board
+ * comes back. `screen` is `{ columns, rows }`, the room the pane has.
  */
-const keepClearAreas = (puzzle) => {
-  const rowsAbove = 1 + (puzzle && !puzzle.isToday ? 1 : 0) + (puzzle?.source === 'fallback' ? 1 : 0)
-
-  return [
-    { x: 0, y: 0, width: WIDTH, height: 1 },
-    { x: 0, y: rowsAbove * 2, width: WORD_LENGTH * 2 - 1, height: MAX_GUESSES },
-  ]
-}
+const celebrationScreen = (h, Box, Text, frame, screen) =>
+  h(
+    Box,
+    {
+      key: 'fireworks',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      width: Math.max(WIDTH, screen.columns),
+      height: Math.max(HEIGHT, screen.rows),
+      backgroundColor: BACKDROP,
+    },
+    ...fireworkRows(frame).map((runs, y) =>
+      h(
+        Box,
+        { key: `fw${y}`, flexDirection: 'row' },
+        ...runs.map((run, i) => h(Text, { key: i, color: run.color, bold: run.bold, backgroundColor: BACKDROP }, run.text)),
+      ),
+    ),
+  )
 
 const BAR_WIDTH = 10
 
@@ -178,10 +179,11 @@ const statusLine = game =>
  * this file never touches the engine's `$`.
  *
  * @param ui `{ h, Box, Text, Button, Input, Select }`
- * @param view `{ game, draft, puzzle, today, isStatsOpen, celebrationFrame }`; `celebrationFrame` >= 0 draws the win fireworks over the board; `game` null means still loading
+ * @param view `{ game, draft, puzzle, today, isStatsOpen, celebrationFrame, screen }`; `celebrationFrame` >= 0 shows the win screen instead of the board; `screen` is `{ columns, rows }`; `game` null means still loading
  * @param on `{ letter(ch), enter(), backspace(), input(text), pickDate(date), toggleStats(), fallbackInfo() }`
  */
-export const renderBoard = ({ h, Box, Text, Button, Input, Select }, { game, draft, puzzle, today, isStatsOpen, celebrationFrame }, on) => {
+export const renderBoard = ({ h, Box, Text, Button, Input, Select }, { game, draft, puzzle, today, isStatsOpen, celebrationFrame, screen }, on) => {
+  if (celebrationFrame >= 0) return celebrationScreen(h, Box, Text, celebrationFrame, screen)
   if (!game) return h(Box, { flexDirection: 'column' }, h(Text, null, 'Loading today’s puzzle…'))
 
   const rows = Array.from({ length: MAX_GUESSES }, (_, r) => letterRow(h, Box, Text, game, draft, r))
@@ -201,7 +203,7 @@ export const renderBoard = ({ h, Box, Text, Button, Input, Select }, { game, dra
 
   return h(
     Box,
-    { position: 'relative', flexDirection: 'column', gap: 1 },
+    { flexDirection: 'column', gap: 1 },
     h(
       Box,
       { flexDirection: 'row', gap: 1 },
@@ -230,7 +232,5 @@ export const renderBoard = ({ h, Box, Text, Button, Input, Select }, { game, dra
     // keyboard and legend side by side, the legend toward the right
     h(Box, { flexDirection: 'row', gap: 4, alignItems: 'flex-end' }, h(Box, { flexDirection: 'column' }, ...keyboard), legend(h, Box, Text)),
     archiveBlock(h, Box, Text, Select, Input, { puzzle, today }, on),
-    // last child, so it paints over everything before it
-    celebrationFrame >= 0 && fireworks(h, Box, Text, celebrationFrame, keepClearAreas(puzzle)),
   )
 }

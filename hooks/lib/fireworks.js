@@ -1,7 +1,7 @@
 export const WIDTH = 36
 export const HEIGHT = 11
-export const FRAME_MS = 110
-export const TOTAL_FRAMES = 24
+export const FRAME_MS = 100
+export const TOTAL_FRAMES = 30 // 30 frames x 100 ms = 3 seconds
 
 const WORD = 'H O O R A Y !'
 const WORD_ROW = 5
@@ -18,22 +18,23 @@ const BURSTS = [
   { cx: 5, cy: 7, start: 9, color: 'suggestion' },
   { cx: 30, cy: 7, start: 11, color: 'claude' },
   { cx: 18, cy: 3, start: 13, color: 'permission' },
+  { cx: 12, cy: 5, start: 16, color: 'warning' },
+  { cx: 24, cy: 5, start: 18, color: 'success' },
+  { cx: 18, cy: 2, start: 21, color: 'error' },
+  { cx: 8, cy: 3, start: 23, color: 'claude' },
+  { cx: 28, cy: 4, start: 24, color: 'suggestion' },
 ]
 const SPARKS = 12
 const LIFE = 5
 const GLYPHS = ['✹', '✺', '✦', '✦', '+', '·']
 
-const isInside = (x, y, rect) => x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height
-
 /**
- * One frame of the fireworks as positioned runs: [{ x, y, text, color, bold }, …].
- * Only the sparks and letters are returned, never blank cells, so the overlay
- * hides nothing it isn't drawing on. Cells inside any `keepClear` rectangle
- * ({ x, y, width, height }) are dropped: that is where the board's letters are.
- * Pure: the same frame always draws the same picture. Past the last frame it
- * is empty.
+ * One frame of the fireworks as WIDTH x HEIGHT rows of runs:
+ * [{ text, color?, bold? }, …] (blank stretches have no color). The caller
+ * paints them on its own background. Pure: the same frame always draws the same
+ * picture. Past the last frame it is blank.
  */
-export const fireworkRuns = (frame, keepClear = []) => {
+export const fireworkRows = frame => {
   const cells = Array.from({ length: HEIGHT }, () => Array.from({ length: WIDTH }, () => null))
   const put = (x, y, ch, color, bold) => {
     if (x >= 0 && x < WIDTH && y >= 0 && y < HEIGHT) cells[y][x] = { ch, color, bold }
@@ -57,15 +58,15 @@ export const fireworkRuns = (frame, keepClear = []) => {
     }
   }
 
-  const runs = []
-  cells.forEach((row, y) => {
-    let last
-    row.forEach((cell, x) => {
-      if (!cell || keepClear.some(rect => isInside(x, y, rect))) return (last = undefined)
-      if (last && last.color === cell.color && last.bold === cell.bold && last.x + last.text.length === x) last.text += cell.ch
-      else runs.push((last = { x, y, text: cell.ch, color: cell.color, bold: cell.bold }))
-    })
-  })
+  return cells.map(row => {
+    const runs = []
+    for (const cell of row) {
+      const text = cell?.ch ?? ' '
+      const last = runs[runs.length - 1]
+      if (last && last.color === cell?.color && last.bold === cell?.bold) last.text += text
+      else runs.push({ text, color: cell?.color, bold: cell?.bold })
+    }
 
-  return runs
+    return runs
+  })
 }

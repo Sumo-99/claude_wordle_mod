@@ -229,6 +229,8 @@ export const register = on => {
       today: await today($),
       isStatsOpen: await read($, isStatsOpen),
       celebrationFrame: await read($, celebrationFrame),
+      // the win screen fills the pane: its width, and a height close to the board's own
+      screen: { columns: e.bodyColumns ?? 40, rows: Math.min(26, Math.max(12, (e.viewport?.rows ?? 30) - 6)) },
     }
 
     if (!view.game && !isLoading) {
