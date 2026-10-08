@@ -92,6 +92,36 @@ const focusGuess = async $ => {
   }
 }
 
+// While true the Guess field is drawn empty. See resyncField.
+const isFieldBlanked = atom({ plugin: 'wordle-mod', key: 'isFieldBlanked' }, false)
+
+const RESYNC_GAP_MS = 60
+
+/**
+ * Makes the Guess field show the draft again. Found from the live diagnostic log:
+ * the field empties its own text on Enter, and it takes the `value` we draw it with
+ * only when that value CHANGES between two drawings. After a rejected guess the
+ * draft is unchanged, so the value was too, and the field stayed empty while the
+ * draft lived on unseen; the next keystroke then replaced it ("type from scratch").
+ * Drawing it empty and then with the draft is a change each time, so it takes both.
+ * Edits that arrive during the empty moment come from a blanked field and are
+ * dropped (see setDraft).
+ */
+const resyncField = async $ => {
+  await update($, isFieldBlanked, () => true)
+  // on a timer, not awaited: the handler that rejected the guess is not held up for it
+  $.clock.after(RESYNC_GAP_MS, () => update($, isFieldBlanked, () => false))
+}
+
+/**
+ * A guess that can't be played (too short, or not a word). As in the real Wordle
+ * the letters STAY and the guess costs nothing: the player just edits the word.
+ */
+const rejectGuess = async ($, message) => {
+  $.ui.toast(message)
+  await resyncField($)
+}
+
 const typeLetter = async ($, letter) => {
   const g = await read($, game)
   if (!g || g.status !== 'playing') return
@@ -107,7 +137,11 @@ const setDraft = async ($, text) => {
   const g = await read($, game)
   if (!g || g.status !== 'playing') return
   const letters = String(text).toLowerCase().replace(/[^a-z]/g, '').slice(0, WORD_LENGTH)
+  if (await read($, isFieldBlanked)) return // an edit of the field while it is being refilled
   await update($, draft, () => letters)
+  // the draft is trimmed to letters, five at most; if that changed what was typed (a sixth
+  // letter, a digit), the field must be told, or it keeps showing the longer text
+  if (letters !== String(text).toLowerCase()) await resyncField($)
 }
 
 const REASONS = { length: 'Not enough letters', invalid: 'Not in word list' }
@@ -116,11 +150,11 @@ const enter = async $ => {
   const g = await read($, game)
   if (!g || g.status !== 'playing') return
   const word = await read($, draft)
-  if (word.length < WORD_LENGTH) return $.ui.toast(REASONS.length)
+  if (word.length < WORD_LENGTH) return rejectGuess($, REASONS.length)
 
   const isValid = await isValidGuess(makeIo($), word)
   const out = submitGuess(g, word, () => isValid)
-  if (!out.ok) return $.ui.toast(REASONS[out.reason] ?? 'Cannot play that')
+  if (!out.ok) return rejectGuess($, REASONS[out.reason] ?? 'Cannot play that')
   await update($, game, () => out.game)
   await update($, draft, () => '')
   const active = await read($, puzzle)
@@ -271,6 +305,7 @@ export const register = on => {
       today: await today($),
       isStatsOpen: await read($, isStatsOpen),
       celebrationFrame: await read($, celebrationFrame),
+      isFieldBlanked: await read($, isFieldBlanked),
       // the win screen fills the pane: its width, and a height close to the board's own
       screen: { columns: e.bodyColumns ?? 40, rows: Math.min(26, Math.max(12, (e.viewport?.rows ?? 30) - 6)) },
     }
@@ -279,6 +314,7 @@ export const register = on => {
       isLoading = true
       $.clock.after(0, async () => startDate($, await today($)))
     }
+
 
     return renderBoard({ h, Box, Text, Button, Input, Select }, view, {
       letter: async ch => {
