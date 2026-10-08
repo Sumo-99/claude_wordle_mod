@@ -3,7 +3,15 @@ import { atom, read, update } from 'claude-code'
 import { FALLBACK_NOTE, renderBoard, renderStats } from './lib/board-view.js'
 import { boardKey, checkArchiveDate } from './lib/archive.js'
 import { FRAME_MS, TOTAL_FRAMES } from './lib/fireworks.js'
-import { AUTO_OPEN_KEY, describeAutoOpen, parseWordleArgs, USAGE } from './lib/lifecycle.js'
+import {
+  AUTO_OPEN_KEY,
+  describeAutoOpen,
+  describeResetAsk,
+  describeResetDone,
+  historyKeys,
+  parseWordleArgs,
+  USAGE,
+} from './lib/lifecycle.js'
 import { createGame, submitGuess, WORD_LENGTH } from './lib/game-engine.js'
 import { DEFAULT_STATS, loadStats, recordCompletion, STATS_KEY } from './lib/stats.js'
 import { isValidGuess, resolveWord } from './lib/word-source.js'
@@ -202,6 +210,19 @@ export const register = on => {
       await $.store.set(AUTO_OPEN_KEY, cmd.value)
 
       return { text: describeAutoOpen(cmd.value) }
+    }
+    if (cmd.kind === 'reset-history-ask' || cmd.kind === 'reset-history') {
+      const doomed = historyKeys(await $.store.keys())
+      const games = doomed.filter(key => key.startsWith('board:')).length
+      if (cmd.kind === 'reset-history-ask') return { text: describeResetAsk(games) }
+
+      for (const key of doomed) await $.store.delete(key)
+      // the open game is history too: drop it so a pane that is showing it starts today afresh
+      await update($, game, () => null)
+      await update($, draft, () => '')
+      await update($, puzzle, () => null)
+
+      return { text: describeResetDone(games) }
     }
     await $.ui.open({ id: PANE, title: 'Wordle', focus: true, closeOnEscape: true })
 

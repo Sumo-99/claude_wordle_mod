@@ -494,3 +494,28 @@ test('the delete key is labelled in plain text and the hint names the real keys'
   expect((await pane.find({ key: 'back' } as any))?.props.label).toBe('Del')
   expect(JSON.stringify(await pane.drawn())).toContain('Backspace to delete, Enter to guess')
 })
+
+test('/wordle config reset-history: asks first, then wipes games and words but keeps stats and settings', async ($, on) => {
+  const { pane, clock, play, text } = await setupGame($, on) // answer: prove
+  const run = async (args: string) => ((await $.command.run({ command: 'wordle', args, origin: { kind: 'composer' } } as any)) as any).text
+
+  await run('config auto-open on')
+  await play('crane') // a saved game for today
+
+  // the bare command only asks, and nothing is deleted
+  const asked = await run('config reset-history')
+  expect(asked).toContain('1 saved game')
+  expect(asked).toContain('reset-history confirm')
+  expect(await run('config reset-history')).toContain('1 saved game') // still there
+  expect(await text()).toContain('Guess 2/6')
+
+  // confirm wipes the history...
+  expect(await run('config reset-history confirm')).toContain('Cleared 1 saved game')
+  expect(await run('config reset-history')).toContain('No saved games to clear')
+  // ...but keeps the setting, and the open pane starts a fresh game
+  expect(await run('config auto-open')).toContain('on')
+  await clock.settle()
+  await clock.settle()
+  expect(await text()).toContain('Guess 1/6')
+  expect(await pane.find({ key: 'guess' } as any)).toBeDefined()
+})

@@ -46,6 +46,15 @@ What you found: clicking the on-screen **⌫** key didn't remove the last letter
 - [ ] The hint under the board now reads "type a word, Backspace to delete, Enter to guess".
 If Del-by-click still fails, or Enter still deletes sometimes, tell me which surface (terminal / Desktop) and exactly what you pressed in what order. (The automated tests can't see focus moves, so this one is purely a live check.)
 
+## Reset history command (`/wordle config reset-history`)
+Where the history lives: the plugin's `$.store` — `board:<date>` (each saved game), `word:<date>` (cached answers), `stats`, `config:autoOpen`. This command clears the first two.
+- [ ] Play a guess or two, then run `/wordle config reset-history`: it reports how many saved games it would delete and tells you to add `confirm`; nothing is deleted yet (the board is unchanged).
+- [ ] Run `/wordle config reset-history confirm`: it reports what it cleared; the open pane restarts on a fresh, empty board for today.
+- [ ] Past days you'd played are blank again (pick one from the Day list), and a finished puzzle can be replayed.
+- [ ] Your **stats** are untouched (open the Stats pane) and `/wordle config auto-open` still shows your setting.
+- [ ] Run it again: "No saved games to clear."
+- [ ] Anything but exactly `confirm` (e.g. `yes`) just prints the usage line.
+
 ## Win fireworks (added after stage 07)
 - [x] Win a puzzle: the whole game pane goes **gray and blank**, fireworks burst in the centre with a rainbow **H O O R A Y !**, it lasts about **3 seconds**, then the finished board comes back (with "Solved in N/6").
 - [x] While it plays you see no board, keyboard, or Guess field — nothing is clipped, covered or cut off. If the gray doesn't fill the pane (a gap at the bottom or right), or the fireworks aren't centred, tell me your terminal size and which surface.
