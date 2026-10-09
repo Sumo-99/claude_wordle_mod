@@ -4,6 +4,10 @@ A [Claude Code mod](https://code.claude.com/docs/en/plugins/mods) that lets
 you play Wordle in a pane while Claude is busy generating a response. It
 works in the terminal CLI and in the Code tab of the Claude Desktop app.
 
+![The Wordle mod: the arcade intro, the board and keyboard side by side, and the Pick a game screen](docs/readme/wordle-hero.png)
+
+For the best experience, increase your terminal height.
+
 ## Install
 
 From the marketplace (Claude Code 2.1.275 or later):
