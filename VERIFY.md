@@ -232,3 +232,11 @@ Setup: `/wordle config reset-history confirm` for "today unplayed"; finish today
 - [ ] **Resize while it plays**: drag the pane or terminal narrower and wider mid-splash. It reflows (block ↔ plain title) but does **not** restart, and still ends about 4 seconds after the open. Wider than 78 columns it stays 78 wide, centred.
 - [ ] **Esc mid-splash** closes the pane cleanly; `/wordle` again plays the splash from the start.
 - [ ] **Desktop app (Code tab)**: the double-line frame, the block title (`▀ ▄ █`) and the colors draw correctly; note how the `1: …` Button sits on row 9 (a native button may be wider than its text) and whether typing a letter skips there too.
+
+## Fix — tile rows ran together
+What you found: with no blank row between tile rows, a guessed row and the row being typed under it read as one tall tile (misses and the typing row had the same fill, `#2e2a26`). Fix: the board spends the rows the pane has to spare on gaps between tile rows, one row at a time, placed where two filled rows meet (the latest guess and the typing row first, then earlier guesses, newest first), up to a gap between every two rows. The board's height depends only on the pane, never on the guess count. The typing row also has its own lighter fill (`#4a4038`) for when there's no row to spare.
+- [ ] Inline, drag the terminal taller and shorter with a game in progress: the gaps come and go **one row at a time**, the gap between your latest guess and the typing row is the first to appear and the last to go, and the pane stops growing at 15 rows side by side.
+- [ ] At the shortest (no gaps), the typing row's fill is visibly lighter than a miss, so ADIEU-then-typing no longer looks like one block.
+- [ ] Making a guess never changes the pane's height; only where the gaps sit moves.
+- [ ] Stacked (a tall pane), the board has its gaps too.
+- [ ] Desktop app: the gaps and the lighter typing fill look right.

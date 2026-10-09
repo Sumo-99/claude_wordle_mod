@@ -1,12 +1,12 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-import { boardMetrics, COMPACT_WIDTH, compactFit, fitRows, isStackedLayout, SIDE_BY_SIDE_MIN, SIDE_BY_SIDE_ROWS, STACK_GAP, stackAt, stackedRows } from '../lib/board-view.js'
+import { boardMetrics, boardRoom, COMPACT_WIDTH, compactFit, fitRows, gapRows, isStackedLayout, SIDE_BY_SIDE_MIN, SIDE_BY_SIDE_ROWS, STACK_GAP, stackAt, stackedRows } from '../lib/board-view.js'
 
 const SOLUTION = 'prove'
 
 const ok = (body: unknown) => ({ status: 200, ok: true, headers: {}, text: JSON.stringify(body) })
 
-const FILL = { green: '#5fb87a', yellow: '#f0b44c', miss: '#2e2a26', active: '#2e2a26' }
+const FILL = { green: '#5fb87a', yellow: '#f0b44c', miss: '#2e2a26', active: '#4a4038' }
 
 /** Every string an element shows, its descendants' included, space-separated. */
 const flat = (el: any): string =>
@@ -19,6 +19,11 @@ const tileAt = async (pane: any, r: number, i: number) => {
   return { text: middle?.children[0], fill: middle?.props.backgroundColor, color: middle?.props.color }
 }
 const rowOf = async (pane: any, r: number) => Promise.all([0, 1, 2, 3, 4].map(i => tileAt(pane, r, i)))
+/** The tile rows with a blank row under them (a gap is the row's bottom margin). */
+const gapsUnder = async (pane: any) => {
+  const rows = await Promise.all([0, 1, 2, 3, 4, 5].map(r => pane.find({ key: `row${r}` })))
+  return rows.flatMap((row: any, r) => (row?.props.marginBottom === 1 ? [r] : []))
+}
 
 /** A finished game opens the picker on its own; ↺ TODAY'S BOARD brings today's finished board back. */
 const todaysBoard = async (pane: any, clock: any) => {
@@ -574,16 +579,16 @@ test('▾ MORE and DATE… each open a big framed container under the compact la
   expect(await pane.find({ key: 'date-drawer' } as any)).toBeUndefined()
 })
 
-test('compact: 12 rows at 78 columns (1 header, 8 body + 2 frame, 1 footer), no blank rows between tile rows', async ($, on) => {
+test('compact: 12 rows at 78 columns (1 header, 8 body + 2 frame, 1 footer), the two spare board rows as gaps', async ($, on) => {
   const { pane } = await setupGame($, on)
   await pane.unmount()
   const ui = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: { bodyColumns: 78 }, requestId: 'wordle' } as any)
   const board = await ui.find({ key: 'board' } as any)
-  expect(board?.children).toHaveLength(6) // six tile rows, nothing between them
-  expect(board?.props.gap).toBeUndefined()
-  expect(board?.props.paddingY).toBe(1)
+  expect(board?.children).toHaveLength(6) // six tile rows; a gap is a row's own bottom margin
+  expect(board?.props.paddingY).toBeUndefined()
+  expect(await gapsUnder(ui)).toHaveLength(2) // rows unknown: the fit's two spare rows
   for (let r = 0; r < 6; r++) expect((await ui.find({ key: `row${r}` } as any))?.children[0]).toMatchObject({ type: 'Box', props: { width: 3 } })
-  const rows = 1 + (6 + 2 * 1 + 2) + 1 // header, board with padding and the frame's two border rows, footer
+  const rows = 1 + (6 + 2 + 2) + 1 // header, board with its two gaps and the frame's two border rows, footer
   expect(rows).toBe(12)
   expect((await ui.find({ key: 'divider' } as any))?.children).toHaveLength(8) // as tall as the frame's body
   // the right-hand column: status, typing field, the keyboard, a gap, stats and stage
@@ -1255,9 +1260,9 @@ test('compactFit: the fullest compact layout that fits the rows, 12 down to 7', 
   expect(fitRows(compactFit(6))).toBe(7) // the board alone is 6 rows: 7 is the least that holds the bar too
 })
 
-for (const [bodyRows, hasHeader, hasBorder, boardPad, hasGap] of [
-  [12, true, true, 1, true],
-  [11, true, true, 0, true], // the blank rows around the board go first
+for (const [bodyRows, hasHeader, hasBorder, gaps, hasGap] of [
+  [12, true, true, 2, true],
+  [11, true, true, 1, true], // the board's spare rows go first (the controls still hold the body at 7: one gap)
   [10, true, true, 0, false], // then the one above the stats row
   [9, false, true, 0, false], // then the header (the stats row still says the STAGE)
   [8, true, false, 0, false], // then the frame's border, the header back
@@ -1270,15 +1275,100 @@ for (const [bodyRows, hasHeader, hasBorder, boardPad, hasGap] of [
     expect(await modeOf(ui)).toBe('side by side')
     expect((await ui.find({ key: 'header' } as any)) !== undefined).toBe(hasHeader)
     expect((await ui.find({ key: 'frame' } as any))?.props.borderStyle).toBe(hasBorder ? 'round' : undefined)
-    expect((await ui.find({ key: 'board' } as any))?.props.paddingY).toBe(boardPad)
+    expect(await gapsUnder(ui)).toHaveLength(gaps)
     expect((await ui.find({ key: 'board' } as any))?.children).toHaveLength(6) // every tile row, always
     expect((await ui.find({ key: 'controls' } as any))?.children).toHaveLength(hasGap ? 5 : 4)
     expect((await ui.find({ key: 'keyboard' } as any))?.children).toHaveLength(3)
     // the divider is as tall as the frame's inside
-    expect((await ui.find({ key: 'divider' } as any))?.children).toHaveLength(Math.max(6 + 2 * boardPad, hasGap ? 7 : 6))
+    expect((await ui.find({ key: 'divider' } as any))?.children).toHaveLength(Math.max(6 + gaps, hasGap ? 7 : 6))
     for (const key of ['footer', 'date-entry', 'stats-toggle', 'stage-prev']) expect(await ui.find({ key } as any)).toBeDefined()
     // and the rows add up to no more than the room
-    const rows = (hasHeader ? 1 : 0) + (hasBorder ? 2 : 0) + Math.max(6 + 2 * boardPad, hasGap ? 7 : 6) + 1
+    const rows = (hasHeader ? 1 : 0) + (hasBorder ? 2 : 0) + Math.max(6 + gaps, hasGap ? 7 : 6) + 1
     expect(rows).toBeLessThanOrEqual(bodyRows)
   })
 }
+
+// ---- gaps between tile rows: they grow with the pane's rows, and go where two filled rows meet ----
+
+const gameOf = (guesses: number, status = 'playing') =>
+  ({ answer: 'prove', status, guesses: Array.from({ length: guesses }, () => ({ word: 'crane', score: ['gray', 'gray', 'gray', 'gray', 'green'] })) }) as any
+
+test('gapRows: the spare rows go where two filled rows meet, newest first, then under the rows to come', () => {
+  const gaps = (guesses: number, spare: number, status = 'playing') => [...gapRows(gameOf(guesses, status), spare)]
+  // the screenshot: one guess (ADIEU) and the row being typed under it; one spare row parts them
+  expect(gaps(1, 1)).toEqual([0])
+  expect(gaps(3, 1)).toEqual([2]) // the last guess and the typing row
+  expect(gaps(3, 3)).toEqual([2, 1, 0]) // then each guess and the one before it
+  expect(gaps(3, 4)).toEqual([2, 1, 0, 3]) // left over: under the typing row
+  expect(gaps(0, 2)).toEqual([0, 1]) // nothing filled to part yet: top down
+  expect(gaps(6, 5, 'lost').sort()).toEqual([0, 1, 2, 3, 4]) // a finished board: no typing row, every guess parted
+  expect(gaps(2, 1, 'won')).toEqual([0])
+  expect(gaps(4, 0)).toEqual([])
+  // never more gaps than spare rows, never a gap under the last row
+  for (let g = 0; g <= 6; g++) for (let s = 0; s <= 5; s++) {
+    const placed = gaps(g, s, g === 6 ? 'lost' : 'playing')
+    expect(placed).toHaveLength(s)
+    expect(placed.every(r => r >= 0 && r <= 4)).toBe(true)
+  }
+})
+
+test('boardRoom: a row of gap for every row the pane grows, up to one between every two tile rows', () => {
+  // side by side at 78 columns: header, two border rows and the footer around a body of at least 8
+  expect([12, 13, 14, 15, 16, 30].map(rows => boardRoom(8, rows, 4))).toEqual([
+    { body: 8, spare: 2 },
+    { body: 9, spare: 3 },
+    { body: 10, spare: 4 },
+    { body: 11, spare: 5 },
+    { body: 11, spare: 5 }, // no further: the pane keeps its compact height
+    { body: 11, spare: 5 },
+  ])
+  expect(boardRoom(8, undefined, 4)).toEqual({ body: 8, spare: 2 }) // rows unknown: the fit's own
+  expect(boardRoom(7, 11, 4)).toEqual({ body: 7, spare: 1 }) // the controls hold the body at 7: one gap
+  expect(boardRoom(6, 10, 4)).toEqual({ body: 6, spare: 0 })
+})
+
+for (const [bodyRows, gaps] of [[12, 2], [13, 3], [14, 4], [15, 5], [20, 5]] as const) {
+  test(`a 78-column pane ${bodyRows} rows tall: ${gaps} gaps, and the frame no taller than the room`, async ($, on) => {
+    const { pane } = await setupGame($, on)
+    await pane.unmount()
+    const ui = await mountSized($, 78, bodyRows)
+    expect(await modeOf(ui)).toBe('side by side')
+    expect(await gapsUnder(ui)).toHaveLength(gaps)
+    const body = 6 + gaps
+    expect((await ui.find({ key: 'divider' } as any))?.children).toHaveLength(body)
+    expect(1 + 2 + body + 1).toBeLessThanOrEqual(bodyRows)
+  })
+}
+
+test('as the guesses come in the board keeps its height, and the gap follows the row being typed', async ($, on) => {
+  const { pane } = await setupGame($, on)
+  await pane.unmount()
+  const ui = await mountSized($, 78, 11) // one spare row
+  const play = async (word: string) => {
+    await ui.input({ key: 'guess', text: word, kind: 'change' } as any)
+    await ui.input({ key: 'guess', text: word, kind: 'submit' } as any)
+  }
+  expect(await gapsUnder(ui)).toEqual([0])
+  await play('crane') // the screenshot: a guess, then the typing row right under it
+  expect(await gapsUnder(ui)).toEqual([0])
+  expect((await tileAt(ui, 0, 0)).fill).toBe(FILL.miss) // C: a miss
+  expect((await tileAt(ui, 1, 0)).fill).toBe(FILL.active) // and the typing row's own fill, not the miss's
+  await play('slate')
+  expect(await gapsUnder(ui)).toEqual([1])
+  expect((await ui.find({ key: 'divider' } as any))?.children).toHaveLength(7)
+})
+
+test('the row being typed has its own fill, lighter than a miss', () => {
+  expect(FILL.active).not.toBe(FILL.miss)
+})
+
+test('stacked with room, the board gets its gaps too', async ($, on) => {
+  const { pane, clock } = await setupGame($, on)
+  await pane.unmount()
+  const ui = await mountSized($, 78, 12)
+  await clock.settle()
+  expect(await resizeTo(ui, clock, 78, 22)).toBe('stacked') // STACK_AT: its measured 8-row board plus the 2 to spare
+  expect(await gapsUnder(ui)).toHaveLength(4)
+  expect(await resizeTo(ui, clock, 78, 40)).toBe('stacked')
+  expect(await gapsUnder(ui)).toHaveLength(5)
+})

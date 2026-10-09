@@ -185,29 +185,64 @@ const FOOTER_WIDTH =
   sum(FOOTER_BUTTONS.map(label => label.length)) + FOOTER_BUTTON_GAP * (FOOTER_BUTTONS.length - 1) + FOOTER_RIGHT_PAD
 /** A wrapping row of two halves: one row when it all fits, two when it doesn't. */
 const wrappedRows = (width, columns) => (width <= columns ? 1 : 2)
-const BOARD_ROWS = MAX_GUESSES + FRAME_PADDING * 2
 const CONTROL_ROWS = 1 + 1 + KEY_ROWS.length + 1 + 1 // status, field, keyboard, gap, stats and stage
+
+/**
+ * How the compact layout gives way when the pane is short (inline it gets about a
+ * third of the terminal): first the board's two spare rows, then the blank row above
+ * the stats row, then the header, then the frame's border, so the board, the keyboard
+ * and the footer bar (DATE…, ▾ MORE) always show. Fullest first. `boardSpare` is the
+ * rows the fit keeps for the board beyond its six tile rows; they become gaps between
+ * tile rows (see `boardRoom` and `gapRows`).
+ */
+const COMPACT_FITS = [
+  { boardSpare: FRAME_PADDING * 2, hasGap: true, hasHeader: true, hasBorder: true },
+  { boardSpare: 0, hasGap: true, hasHeader: true, hasBorder: true },
+  { boardSpare: 0, hasGap: false, hasHeader: true, hasBorder: true },
+  { boardSpare: 0, hasGap: false, hasHeader: false, hasBorder: true },
+  { boardSpare: 0, hasGap: false, hasHeader: true, hasBorder: false },
+  { boardSpare: 0, hasGap: false, hasHeader: false, hasBorder: false },
+]
+/** The frame's inside rows at the least: the taller of the board (with its spare rows) and the controls. */
+const fitBodyRows = fit => Math.max(MAX_GUESSES + fit.boardSpare, CONTROL_ROWS - (fit.hasGap ? 0 : 1))
+/** The stacked layout's board as its height is measured (the fullest fit's): six tile rows and two spare. */
+const BOARD_ROWS = MAX_GUESSES + COMPACT_FITS[0].boardSpare
+/** The tallest the board grows: a blank row between every two tile rows. */
+const MAX_BOARD_ROWS = MAX_GUESSES * 2 - 1
 
 /** How many rows the stacked layout takes in a body `columns` wide: header, frame (board over controls), footer. */
 export const stackedRows = columns =>
   wrappedRows(HEADER_WIDTH, columns) + FRAME_BORDER + BOARD_ROWS + CONTROL_ROWS + wrappedRows(FOOTER_WIDTH, columns)
 
 /**
- * How the compact layout gives way when the pane is short (inline it gets about a
- * third of the terminal): first the blank rows around the board, then the one above
- * the stats row, then the header, then the frame's border, so the board, the keyboard
- * and the footer bar (DATE…, ▾ MORE) always show. Fullest first.
+ * The room the board gets in a pane body `bodyRows` tall, the rest of the layout
+ * taking `aroundRows`: `body`, the rows the board's part of the frame takes (side by
+ * side, also the controls' and the divider's), and `spare`, the rows of it beyond the
+ * six tile rows (0–5), each one a gap between two tile rows. It grows a row at a time
+ * with the pane, from the fit's own rows up to a gap between every two tile rows,
+ * and no further: past that the pane keeps its compact height. Unknown rows: the fit's own.
  */
-const COMPACT_FITS = [
-  { boardPad: FRAME_PADDING, hasGap: true, hasHeader: true, hasBorder: true },
-  { boardPad: 0, hasGap: true, hasHeader: true, hasBorder: true },
-  { boardPad: 0, hasGap: false, hasHeader: true, hasBorder: true },
-  { boardPad: 0, hasGap: false, hasHeader: false, hasBorder: true },
-  { boardPad: 0, hasGap: false, hasHeader: true, hasBorder: false },
-  { boardPad: 0, hasGap: false, hasHeader: false, hasBorder: false },
-]
-/** The frame's inside rows: the taller of the board (with its padding) and the controls. */
-const fitBodyRows = fit => Math.max(MAX_GUESSES + fit.boardPad * 2, CONTROL_ROWS - (fit.hasGap ? 0 : 1))
+export const boardRoom = (least, bodyRows, aroundRows) => {
+  const body = bodyRows == null ? least : Math.max(least, Math.min(Math.max(MAX_BOARD_ROWS, least), bodyRows - aroundRows))
+
+  return { body, spare: Math.min(MAX_BOARD_ROWS, body) - MAX_GUESSES }
+}
+
+/**
+ * Which tile rows get a blank row under them, given `spare` rows to place. Only two
+ * filled rows next to each other can run together (a guess, or the row being typed;
+ * pellet rows have no fill), so the gaps go where those meet, the newest first: the
+ * last guess and the row being typed, then each guess and the one before it. Any
+ * left over go under the rows still to come, top down. The count is the pane's,
+ * never the game's: the board keeps its height as the guesses come in.
+ */
+export const gapRows = (game, spare) => {
+  const filled = game.guesses.length + (game.status === 'playing' ? 1 : 0)
+  const meeting = Array.from({ length: Math.max(0, filled - 1) }, (_, i) => filled - 2 - i)
+  const ahead = Array.from({ length: MAX_GUESSES - 1 }, (_, r) => r).filter(r => !meeting.includes(r))
+
+  return new Set([...meeting, ...ahead].slice(0, Math.max(0, spare)))
+}
 /** A fit's rows: header, frame border, frame body, footer. */
 export const fitRows = fit => (fit.hasHeader ? 1 : 0) + (fit.hasBorder ? FRAME_BORDER : 0) + fitBodyRows(fit) + 1
 /** The fullest compact layout that fits `bodyRows` (all of it while the rows are unknown). */
@@ -260,8 +295,8 @@ const tile = (h, Box, Text, key, width, fill, letter, color) =>
 const pellet = (h, Box, Text, key, width, glyph) =>
   h(Box, { key, width }, h(Text, { color: PALETTE.pellet }, centred(glyph, width)))
 
-/** Row `r` of the board: scored tiles, the row being typed (with its ▌ cursor), or pellets. */
-const tileRow = (h, Box, Text, game, draft, r, width) => {
+/** Row `r` of the board: scored tiles, the row being typed (with its ▌ cursor), or pellets; `isGapped`: a blank row under it. */
+const tileRow = (h, Box, Text, game, draft, r, width, isGapped) => {
   const played = game.guesses[r]
   const isActive = r === game.guesses.length && game.status === 'playing'
   const cells = Array.from({ length: WORD_LENGTH }, (_, i) => {
@@ -279,7 +314,7 @@ const tileRow = (h, Box, Text, game, draft, r, width) => {
     return pellet(h, Box, Text, key, width, isPower ? '●' : '•')
   })
 
-  return h(Box, { key: `row${r}`, flexDirection: 'row', gap: 1 }, ...cells)
+  return h(Box, { key: `row${r}`, flexDirection: 'row', gap: 1, ...(isGapped && { marginBottom: 1 }) }, ...cells)
 }
 
 /** A key chip: a filled `width`×1 Box holding a plain Button (a Button's label can't be colored, only the chip). */
@@ -390,20 +425,23 @@ const controls = (h, ui, view, metrics, fit, on) => {
   )
 }
 
-/** The board column: six tile rows, nothing between them. */
-const board = (h, Box, Text, game, draft, metrics, fit) =>
-  h(
-    Box,
-    { key: 'board', flexDirection: 'column', justifyContent: 'center', width: metrics.board, paddingX: metrics.pad, paddingY: fit.boardPad },
-    ...Array.from({ length: MAX_GUESSES }, (_, r) => tileRow(h, Box, Text, game, draft, r, metrics.tile)),
-  )
+/** The board column: six tile rows, with `spare` blank rows placed between them (see gapRows), centred. */
+const board = (h, Box, Text, game, draft, metrics, spare) => {
+  const gaps = gapRows(game, spare)
 
-/** The faint line between board and controls: one column of │, as tall as the frame's body. */
-const divider = (h, Box, Text, fit) =>
+  return h(
+    Box,
+    { key: 'board', flexDirection: 'column', justifyContent: 'center', width: metrics.board, paddingX: metrics.pad },
+    ...Array.from({ length: MAX_GUESSES }, (_, r) => tileRow(h, Box, Text, game, draft, r, metrics.tile, gaps.has(r))),
+  )
+}
+
+/** The faint line between board and controls: one column of │, `rows` tall (the frame's body). */
+const divider = (h, Box, Text, rows) =>
   h(
     Box,
     { key: 'divider', flexDirection: 'column', width: 1 },
-    ...Array.from({ length: fitBodyRows(fit) }, (_, i) => h(Text, { key: `d${i}`, color: PALETTE.divider }, '│')),
+    ...Array.from({ length: rows }, (_, i) => h(Text, { key: `d${i}`, color: PALETTE.divider }, '│')),
   )
 
 /** The WORDLE badge: bold spaced letters in the background color on a title-colored fill, ▐ ▌ in the accent color on each side. */
@@ -657,6 +695,11 @@ export const renderBoard = (ui, view, on) => {
   const { isSideBySide, width } = metrics
   // side by side it fits the pane's rows (the footer bar always in view); stacked only comes with room to spare
   const fit = isSideBySide ? compactFit(layout.rows) : COMPACT_FITS[0]
+  // the board's room grows with the pane's rows, a gap at a time: side by side it is the frame's
+  // body (around it: header, border, footer); stacked it is the board's own rows (around it, the rest)
+  const room = isSideBySide
+    ? boardRoom(fitBodyRows(fit), layout.rows, (fit.hasHeader ? 1 : 0) + (fit.hasBorder ? FRAME_BORDER : 0) + 1)
+    : boardRoom(BOARD_ROWS, layout.rows, stackedRows(layout.columns) - BOARD_ROWS)
   const isOver = game.status !== 'playing'
   const date = puzzle?.date ?? today
   const [typeToPlay, enterLabel, dot, deleteLabel, escToExit] = HINT_PARTS
@@ -702,8 +745,8 @@ export const renderBoard = (ui, view, on) => {
           ...(fit.hasBorder && { borderStyle: 'round', borderColor: PALETTE.walls }),
           backgroundColor: PALETTE.panel,
         },
-        board(h, Box, Text, game, draft, metrics, fit),
-        isSideBySide && divider(h, Box, Text, fit),
+        board(h, Box, Text, game, draft, metrics, room.spare),
+        isSideBySide && divider(h, Box, Text, room.body),
         controls(h, ui, view, metrics, fit, on),
       ),
       h(

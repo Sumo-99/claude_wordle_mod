@@ -159,6 +159,14 @@ above the stats row, then the header, then the frame's border, down to 7 rows
 (a terminal of about 27 rows). Below that the board alone is taller than the
 pane, and the pane scrolls.
 
+Each tile is one row tall, so a guess sits right on top of the next unless
+there's a blank row between them. The pane spends the rows it has to spare on
+those blank rows, one at a time as it grows: first between your latest guess
+and the row you're typing, then between earlier guesses, up to a gap between
+every two rows (15 rows side by side). It grows no taller than that. With no
+row to spare, the row you're typing still has its own lighter fill, so it never
+runs into the guess above it.
+
 It opens compact whatever the height. Make the terminal taller after that and
 once the pane has the height for the stacked layout (its rows plus two: about
 21 to 22 body rows), it stacks, board on top, with the biggest tiles and keys

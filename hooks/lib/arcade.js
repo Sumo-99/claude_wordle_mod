@@ -14,7 +14,7 @@ export const PALETTE = {
   correct: '#5fb87a',
   present: '#f0b44c',
   miss: '#2e2a26',
-  active: '#2e2a26',
+  active: '#4a4038', // the row being typed: lighter than a miss, so the two never read as one tile
   accent: '#d97757',
   pellet: '#e8a07c',
   keyIdle: '#2e2a26',
