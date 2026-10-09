@@ -538,6 +538,32 @@ test('layout: side by side from 75 columns, stacked below, always one round fram
   }
 })
 
+test('▾ MORE and DATE… each open a big framed container under the compact layout, which itself stays as it is', async ($, on) => {
+  const { pane } = await setupGame($, on)
+  // the drawing, less the handler ids a redraw renumbers
+  const frame = async () => JSON.stringify(await pane.find({ key: 'frame' } as any)).replace(/"handle":\d+/g, '')
+  const frameBefore = await frame()
+  expect(await pane.find({ key: 'stats-details' } as any)).toBeUndefined()
+  expect(await pane.find({ key: 'date-drawer' } as any)).toBeUndefined()
+
+  await pane.press({ key: 'stats-toggle' } as any)
+  expect((await pane.find({ key: 'stats-details' } as any))?.props).toMatchObject({ borderStyle: 'round', borderColor: '#d97757', backgroundColor: '#1f1c19' })
+  expect(flat(await pane.find({ key: 'stats-details' } as any))).toContain('WINS BY GUESS')
+  expect(await pane.find({ key: 'clear-stats' } as any)).toBeDefined()
+  expect(await frame()).toBe(frameBefore) // the compact frame above is untouched
+  await pane.press({ key: 'stats-toggle' } as any)
+  expect(await pane.find({ key: 'stats-details' } as any)).toBeUndefined()
+
+  await pane.press({ key: 'date-entry' } as any)
+  expect((await pane.find({ key: 'date-drawer' } as any))?.props).toMatchObject({ borderStyle: 'round', borderColor: '#d97757', backgroundColor: '#1f1c19' })
+  expect(flat(await pane.find({ key: 'date-drawer' } as any))).toContain('PICK A STAGE')
+  expect(await pane.find({ key: 'archive-pick' } as any)).toBeDefined()
+  expect(await pane.find({ key: 'archive-date' } as any)).toBeDefined()
+  expect(await frame()).toBe(frameBefore)
+  await pane.press({ key: 'date-entry' } as any)
+  expect(await pane.find({ key: 'date-drawer' } as any)).toBeUndefined()
+})
+
 test('compact: 12 rows at 78 columns (1 header, 8 body + 2 frame, 1 footer), no blank rows between tile rows', async ($, on) => {
   const { pane } = await setupGame($, on)
   await pane.unmount()
@@ -672,7 +698,7 @@ test('a refused focus move never breaks a key press', async ($, on) => {
   expect((await pane.find({ key: 'guess' } as any))?.props.value).toBe('pr')
 })
 
-test('the 1 and 2 hotkeys live on the hint line, and it says how to play', async ($, on) => {
+test('the hint line shows the ⏎ and ⌫ icons, and the chips are plain clickable keys', async ($, on) => {
   mock.store(on)
   const clock = mock.clock(on, { now: Date.parse('2026-10-07T12:00:00') })
   on('http.fetch', async () => ({ value: ok({ solution: SOLUTION }) }))
@@ -683,14 +709,10 @@ test('the 1 and 2 hotkeys live on the hint line, and it says how to play', async
   await clock.settle()
   await clock.settle()
 
-  // the hotkeys sit on the hint line (`1: ENTER`): a plain Button with a hotkey draws a prefix, too wide for a chip
-  expect((await pane.find({ key: 'hotkey-enter' } as any))?.props).toMatchObject({ label: 'ENTER', hotkey: '1', plain: true })
-  expect((await pane.find({ key: 'hotkey-back' } as any))?.props).toMatchObject({ label: 'DELETE', hotkey: '2', plain: true })
-  // the chips are plain clickable keys, and letter keys carry no hotkey either
-  expect((await pane.find({ key: 'enter' } as any))?.props).toMatchObject({ label: '⏎', plain: true })
-  expect((await pane.find({ key: 'back' } as any))?.props).toMatchObject({ label: '⌫', plain: true })
-  for (const key of ['enter', 'back', 'k-q']) expect((await pane.find({ key } as any))?.props.hotkey).toBeUndefined()
-  // the hint line reads `TYPE TO PLAY · 1: ENTER · 2: DELETE · ESC TO EXIT` (the two Buttons are its middle)
+  // the hint line names the icons (`⏎ ENTER · ⌫ DELETE`); a hotkey would draw a `1:` prefix in front of the icon, so there is none
+  expect((await pane.find({ key: 'hotkey-enter' } as any))?.props).toMatchObject({ label: '⏎ ENTER', plain: true })
+  expect((await pane.find({ key: 'hotkey-back' } as any))?.props).toMatchObject({ label: '⌫ DELETE', plain: true })
+  for (const key of ['hotkey-enter', 'hotkey-back', 'enter', 'back', 'k-q']) expect((await pane.find({ key } as any))?.props.hotkey).toBeUndefined()
   expect(flat(await pane.find({ key: 'hint' } as any))).toBe('TYPE TO PLAY ·   ·   · ESC TO EXIT')
 })
 
@@ -876,3 +898,48 @@ for (const [columns, bodyRows] of [
     expect(await ui.find({ key: 'skip-celebration' } as any)).toBeDefined()
   })
 }
+
+test('the hint line ⏎ and ⌫ buttons enter and delete', async ($, on) => {
+  const { pane } = await setupGame($, on)
+  await pane.press({ key: 'k-c' } as any)
+  await pane.press({ key: 'k-r' } as any)
+  expect((await pane.find({ key: 'guess' } as any))?.props.value).toBe('cr')
+  await pane.press({ key: 'hotkey-back' } as any)
+  expect((await pane.find({ key: 'guess' } as any))?.props.value).toBe('c')
+})
+
+test('footer: DATE… sits left of ▾ MORE, with room before the right edge; only one panel is open at a time', async ($, on) => {
+  const { pane } = await setupGame($, on)
+  const right = await pane.find({ key: 'footer-right' } as any)
+  expect(right?.props.paddingRight).toBeGreaterThanOrEqual(4)
+  const labels = (right?.children as any[]).map(c => c.props.label)
+  expect(labels).toEqual(['DATE…', '▾ MORE'])
+
+  await pane.press({ key: 'date-entry' } as any)
+  expect(await pane.find({ key: 'date-drawer' } as any)).toBeDefined()
+  expect(await pane.find({ key: 'stats-details' } as any)).toBeUndefined()
+  await pane.press({ key: 'stats-toggle' } as any) // MORE replaces DATE
+  expect(await pane.find({ key: 'stats-details' } as any)).toBeDefined()
+  expect(await pane.find({ key: 'date-drawer' } as any)).toBeUndefined()
+  await pane.press({ key: 'date-entry' } as any) // and DATE replaces MORE
+  expect(await pane.find({ key: 'date-drawer' } as any)).toBeDefined()
+  expect(await pane.find({ key: 'stats-details' } as any)).toBeUndefined()
+})
+
+test('the date picker lists the last 14 days and plays the one picked', async ($, on) => {
+  const { pane, clock } = await setupGame($, on, { answers: { '2026-10-07': 'prove', '2026-10-03': 'crane' } })
+  await pane.press({ key: 'date-entry' } as any)
+  const pick = await pane.find({ key: 'archive-pick' } as any)
+  const options = pick?.props.options as { value: string; label: string }[]
+  expect(options).toHaveLength(14)
+  expect(options[0]).toEqual({ value: '2026-10-07', label: '07 OCT · 2026-10-07 (today)' })
+  expect(options[13].value).toBe('2026-09-24')
+  expect(pick?.props.value).toBe('2026-10-07')
+
+  await pane.select({ key: 'archive-pick', value: '2026-10-03' } as any)
+  await clock.settle()
+  await clock.settle()
+  expect(flat(await pane.find({ key: 'stage-date' } as any))).toBe('STAGE 03 OCT')
+  expect(JSON.stringify(await pane.drawn())).toContain('PRACTICE STAGE')
+  expect(await pane.find({ key: 'date-drawer' } as any)).toBeUndefined() // picking a day closes the panel
+})

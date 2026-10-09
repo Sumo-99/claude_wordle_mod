@@ -31,10 +31,10 @@ typed by you has no width limit.
 
 ## Playing
 
-You get six guesses at the day's five-letter word. The pane is drawn as an
-arcade cabinet ("Claude night"), about 12 rows tall: a one-line header (the
-**WORDLE** badge, 1UP / HI / STAGE), one rounded frame with the board on the
-left and the controls on the right, and a hint line under it.
+You get six guesses at the day's five-letter word. The pane is a compact
+arcade cabinet ("Claude night"), about 12 rows tall: a one-line header
+(the **WORDLE** badge and your score), then one framed panel with the board
+on the left and the controls on the right, and a hint line underneath.
 
 After each guess every tile is filled by its result:
 
@@ -55,26 +55,26 @@ its key disappears, leaving a dim `·`.
 |---|---|
 | **TYPE:** field | Type your guess (it has the keyboard when the pane opens). Backspace deletes the last letter, Enter submits. |
 | On-screen keys | Click a letter to add it. **⏎** submits, **⌫** deletes. |
-| `1` / `2` | Hotkeys for ⏎ and ⌫, shown on the hint line as `1: ENTER` / `2: DELETE` (when the focus is on the pane, not in the field). Letter keys have no hotkey of their own: type into the field instead. |
-| **▾ MORE** | On the hint line: opens games played, the 1–6 guess distribution, and **CLEAR STATS** (press twice to confirm) one row under it. **▴ LESS** closes it. |
-| **◀ ▶** | Beside the STAGE date: step back and forward through the last 14 days. |
-| **▶ TODAY** | Jump back to today's puzzle (shown on any other day). |
-| **DATE…** | Opens a field for any date (`YYYY-MM-DD`, from 2021-06-19 on). |
+| `⏎ ENTER` / `⌫ DELETE` | The hint line names the two keys; click them like the chips. There are no digit hotkeys any more (a hotkey would draw a `1:` in front of the icon) and letter keys have none either: type into the field instead. |
+| **◀ ▶** | Beside `STAGE` in the stats row: step back and forward through the last 14 days. |
+| **▶ TODAY** | Under the frame on any other day: jump back to today's puzzle. |
+| **DATE…** | Under the frame, left of ▾ MORE: opens a big **PICK A STAGE** container below the compact layout (scroll down to it) with a list of the last 14 days and a field for any other date (`YYYY-MM-DD`, from 2021-06-19 on). Picking a day plays it and closes the container. |
+| **▾ MORE** | Under the frame: opens a big **STATS** container below the compact layout: games played, the 1–6 guess distribution as bars, and **CLEAR STATS** (press twice to confirm). **▴ LESS** closes it. Only one of the two containers is open at a time: opening one closes the other. |
 | Esc | Close the pane. |
 
-In the header: **1UP** is this puzzle's score (100 for every guess left
-when you solve it, 0 otherwise), **HI** is the best score in your
-stats, and **STAGE** is the puzzle's date. **LIVES** shows ◆ for each guess
-left and ◇ for each used; **READY!** shows until your first guess.
+In the header, **1UP** is this puzzle's score (100 for every guess left when
+you solve it, 0 otherwise), **HI** is the best score in your stats, and
+**STAGE** is the puzzle's date. **LIVES** shows ◆ for each guess left and ◇
+for each used; **READY!** shows until your first guess.
 
 Solve the puzzle and the board gives way to a 3-second red celebration — it opens out from the centre with shockwaves, a red-and-gold burst, a turning sunburst and **WORDDDD... / you solved it!** — then comes back (press `1` or click *continue* to skip). `/wordle config reduce-motion on` swaps it for a plain fade.
 
 ### Stats
 
 **STREAK** (current streak), **BEST** (longest streak) and **WIN%** sit in
-the controls panel. Only today's puzzle counts. **▾ MORE** shows games
-played, wins and how many wins took 1–6 guesses, and **CLEAR STATS** resets
-the history to zero without touching your saved boards.
+the controls panel, next to the stage. Only today's puzzle counts. **▾ MORE**
+shows games played, wins and how many wins took 1–6 guesses, and **CLEAR
+STATS** resets the history to zero without touching your saved boards.
 
 ### Practice: past puzzles
 
@@ -85,11 +85,10 @@ type a date behind **DATE…**. Your board for each date is saved, so
 
 ### Pane size
 
-The pane is about 12 rows tall at its usual ~78 columns, so it fits an
-inline pane in an ordinary terminal. From 75 columns the board and the
-controls sit side by side; narrower, the controls drop under the board and
-the pane is taller (it scrolls with the arrow keys if it runs out of room).
-**▾ MORE** and **DATE…** each add one row under the hint line.
+The pane is about 12 rows tall and fits a pane 75 columns wide or more,
+where the controls sit beside the board. In a narrower pane they stack under
+the board (about 20 rows) and the header wraps onto two lines if it has to.
+**▾ MORE** and **DATE…** each open a big framed container underneath, which can take as much room as it needs (scroll down to it); the compact layout above stays as it is.
 
 ### Offline
 

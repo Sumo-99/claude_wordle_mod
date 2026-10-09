@@ -199,6 +199,7 @@ const stepToStage = async ($, dir) => {
 /** DATE…: shows or hides the typed-date field, and gives it the keyboard when it opens. */
 const toggleDateEntry = async $ => {
   const isOpen = await update($, isDateEntryOpen, v => !v)
+  if (isOpen) await update($, isStatsOpen, () => false) // one panel at a time
   if (!isOpen) return focusGuess($)
   try {
     await $.ui.focus({ requestId: PANE, key: 'archive-date' })
@@ -257,7 +258,8 @@ const clearStats = async $ => {
 
 /** ▾ MORE / ▴ LESS beside the stats row: the details (played, distribution, Clear stats). */
 const toggleStats = async $ => {
-  await update($, isStatsOpen, v => !v)
+  const isOpen = await update($, isStatsOpen, v => !v)
+  if (isOpen) await update($, isDateEntryOpen, () => false) // one panel at a time
 }
 
 /** @type {import('claude-code').Register} */
@@ -321,7 +323,7 @@ export const register = on => {
 
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
     if (e.requestId !== PANE) return next(e)
-    const { Box, Text, Button, Input } = $.ui.resolve(e)
+    const { Box, Text, Button, Input, Select } = $.ui.resolve(e)
     const view = {
       game: await read($, game),
       draft: await read($, draft),
@@ -351,7 +353,7 @@ export const register = on => {
       $.clock.after(0, async () => startDate($, await today($)))
     }
 
-    return renderBoard({ h, Box, Text, Button, Input }, view, {
+    return renderBoard({ h, Box, Text, Button, Input, Select }, view, {
       letter: async ch => {
         await typeLetter($, ch)
         await focusGuess($)

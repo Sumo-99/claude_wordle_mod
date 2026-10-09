@@ -1,5 +1,7 @@
 # 08_ui_redesign — the arcade "Claude night" pane
 
+> **Layout superseded by `../09_compact_layout/`.** The palette, behavior and platform findings below still stand; the tall layout (3-row tiles, block title, double walls, density tiers) was replaced by a compact one.
+
 > **Layout superseded by `../09_compact_layout/`.** The palette and the
 > platform findings below still hold; the block-letter title, the 5×3 tiles,
 > the double-line key frames and the density tiers were replaced by the

@@ -6,7 +6,7 @@ Tick a box when you've seen it pass; add a note under anything that fails.
 
 *Status note: everything not listed as an issue after your first pass was closed on your say-so. Still open: the stats panel items (Stage 06) and the Backspace/Enter focus-fix re-checks below.*
 
-*Stage 08 note: the pane was redrawn (arcade "Claude night" look). Older items below still describe the behavior to check, but some name controls that have changed: **Guess:** is now **TYPE:**, the **Day:** list is now **◀ ▶** / **▶ TODAY** / **DATE…**, the separate stats window is now **▾ MORE** under the STREAK row, **Del** is now **⌫**, letter keys have no hotkey of their own, and status lines read `GUESS 2 OF 6`, `SOLVED IN 2/6`, `THE WORD WAS …`. The legend is gone. The new checks are in "Stage 08" at the end.*
+*Stage 08 note: the pane was redrawn (arcade "Claude night" look). Older items below still describe the behavior to check, but some name controls that have changed: **Guess:** is now **TYPE:**, the **Day:** list is now **◀ ▶** / **▶ TODAY** / **DATE…**, the separate stats window is now **▾ MORE** under the STREAK row, **Del** is now **⌫**, letter keys have no hotkey of their own, and status lines read `GUESS 2 OF 6`, `SOLVED IN 2/6`, `THE WORD WAS …`. The legend is gone. The new checks are in "Stage 08" at the end. Stage 09 then made the layout compact (about 12 rows); where the two differ, **Stage 09** wins (e.g. `HI-SCORE` is now `HI`, the offline marker is `⚠ OFFLINE` in the header, `⏎ ENTER` / `⌫ DELETE` replace the digit hotkeys on the hint line, and the block-letter title is a badge).*
 
 Setup for every check:
 
@@ -160,22 +160,30 @@ Desktop app (Code tab), same pane:
 - [ ] Keys are native buttons inside the frames: note how they look and whether clicks still land.
 - [ ] Anything that renders differently from the terminal: note it here.
 
-## Stage 09 — compact layout (panel 1, "Filled chips")
-Reference: panel 1 of `docs/ui-ref/wordle-compact-options.png`. Layout only: palette, rules, word source, stats, archive and celebration are unchanged. The stage 08 "Sizes" and block-title items above are superseded by this list.
+## Stage 09 — compact layout (panel 1 "Filled chips")
+Reference: panel 1 of `docs/ui-ref/wordle-compact-options.png`. Same palette and behavior as stage 08; only the layout changed.
 
-Terminal, about 78 columns:
-- [ ] The pane is about 12 rows: one header row, the rounded frame (8 body rows + 2 border rows), one hint row.
-- [ ] Header: the `▐ W O R D L E ▌` badge on the left; `1UP 00000  HI 00000  STAGE 08 OCT` on the right.
-- [ ] Inside the frame: the board (six 3×1 tile rows, no blank rows between them) on the left, a faint `│` line, then the controls on the right — side by side, not stacked.
-- [ ] Controls: `READY!` / `GUESS N OF 6` / `LIVES`, the `TYPE` field, three rows of filled key chips (⏎ orange, ⌫ gray), a blank row, `STREAK BEST WIN% STAGE ◀ 08 OCT`.
-- [ ] Hint line: `TYPE TO PLAY · 1: ENTER · 2: DELETE · ESC TO EXIT` on the left, `▾ MORE` and `DATE…` on the right (`▶ TODAY` too, on another day).
+What the API allows, and what was decided (details in `plan/stages/09_compact_layout/CONTEXT.md`):
+- A Button's label can't be colored, so a key chip's state shows on its **fill only**; a found letter keeps the default text color on its green/amber chip (the reference shows a dark letter).
+- A plain Button with a hotkey draws `1: label`, which can't be replaced by an icon, so the digit hotkeys `1` / `2` were dropped: the hint line shows `⏎ ENTER` / `⌫ DELETE` and the ⏎ / ⌫ chips are plain clickable keys.
+- The `TYPE:` field stays (physical Backspace can't be a hotkey). It sits where the reference has a blank row, so the pane is no taller for it.
 
-Playing:
-- [ ] Type a guess, click chips (letters, ⏎, ⌫), and use `1` / `2` with the focus off the field.
-- [ ] `◀ ▶` step days (PRACTICE STAGE appears beside the badge); `▶ TODAY` comes back.
-- [ ] `▾ MORE` adds one row (PLAYED/WON, CLEAR STATS) plus the distribution under the hint line; `DATE…` adds the date field.
-- [ ] Win once: the celebration plays, then hands back to the compact board.
+Terminal, pane about 78 columns (compare with panel 1):
+- [ ] The pane is about **12 rows**: one header row, a rounded frame, one hint row. No blank rows between tile rows.
+- [ ] Header: the orange **WORDLE** badge (dark spaced letters) with `▐ ▌` caps; `PRACTICE STAGE` (pink) only on practice days; right side `1UP 00000   HI 00000   STAGE 08 OCT` (orange labels, white values).
+- [ ] The frame is thin and rounded, orange, with a faint vertical line between board and controls.
+- [ ] Board: 3×1 tiles (` C `), 6 rows, a gap of one column. Green/amber tiles have dark letters, misses dark with a dim letter, the typing row white letters with an orange `▌` cursor, pellets (`•`, `●` in the last row's corners) ahead.
+- [ ] Controls: `READY! GUESS 1 OF 6 LIVES ◆ ◆ ◆ ◆ ◆ ◆`, the `TYPE:` field, three rows of key chips (⏎ is orange), then `STREAK 00  BEST 00  WIN% 00  STAGE ◀ 08 OCT`.
+- [ ] Chips turn green/amber as letters are found; a known miss is a dim `·` in the key's place.
+- [ ] Hint line: `TYPE TO PLAY · ⏎ ENTER · ⌫ DELETE · ESC TO EXIT` on the left (the two are clickable); `DATE…   ▾ MORE` on the right, a few columns in from the edge (with `▶ TODAY` first on a practice day). There are no digit hotkeys.
+- [ ] `▾ MORE` opens a big rounded **STATS** container under the hint line (`PLAYED n · WON n`, `CLEAR STATS`, 1–6 bars; `CLEAR STATS` needs two presses); `DATE…` opens a **PICK A STAGE** container with a **Last 14 days** list (pick one to play it; the container then closes) and an **Or a date** field. The compact frame above does not move or change; you scroll down to the container. Only one container is open at a time: opening one closes the other, and `▴ LESS` / `▴ DATE…` close it.
+- [ ] `◀ ▶` step through 14 days; `▶ TODAY` jumps back.
+- [ ] Game over: `SOLVED IN N/6` (green) or `THE WORD WAS …` (amber) replaces the guess count, the field's row goes blank, the hint becomes `◀ ▶ PICK ANOTHER STAGE · ESC TO EXIT`.
+- [ ] Win: the celebration plays, then hands back to the compact board.
+- [ ] About 60 columns: the controls stack under the board (about 20 rows) and nothing overlaps.
 
-Sizes and surfaces:
-- [ ] About 60 columns: the controls stack under the board; nothing overlaps.
-- [ ] Desktop app (Code tab): the same checks; note anything that renders differently.
+Playing (as in stage 08): typing, Backspace, Enter, clicking chips and the `⏎ ENTER` / `⌫ DELETE` hint buttons, rejected words keeping their letters. (The `1` / `2` hotkeys are gone; the win screen's `1` to skip is unchanged.)
+
+Desktop app (Code tab), same pane:
+- [ ] The `round` frame, the vertical divider and the filled chips draw correctly (a native button sits inside each chip: note how it looks and that clicks land).
+- [ ] The 12-row height holds; note any difference from the terminal.

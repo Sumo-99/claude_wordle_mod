@@ -18,9 +18,9 @@ Do NOT load: `game-engine.js`, `word-source.js`, `stats.js`, `archive.js`, `fire
   fill holding a plain Button. A found letter therefore keeps the default text
   color on its green or amber chip (the reference shows a dark letter); only
   the chip carries the state.
-- A plain Button with a hotkey draws `1: label`, too wide for a chip. The
-  `1` / `2` hotkeys therefore live on the hint line as `1: ENTER` and
-  `2: DELETE`; the ⏎ and ⌫ chips are ordinary clickable Buttons.
+- A plain Button with a hotkey draws `1: label`, and the prefix can't be an
+  icon. The digit hotkeys `1` / `2` were therefore dropped: the hint line shows
+  `⏎ ENTER` and `⌫ DELETE`, and the ⏎ and ⌫ chips are ordinary clickable Buttons.
 - Physical Backspace can't be a hotkey, so the one-line `TYPE` field stays.
   The reference has no field; it takes the blank row between the status row
   and the keyboard, so the height is unchanged.
@@ -53,7 +53,7 @@ Do NOT load: `game-engine.js`, `word-source.js`, `stats.js`, `archive.js`, `fire
 Run `claude --plugin-dir .`, open `/wordle` in a pane about 78 columns wide
 and compare it with panel 1 of `docs/ui-ref/wordle-compact-options.png`: the
 pane is about 12 rows and side by side. Play a game (type, click the chips,
-`1` / `2`), step days with `◀ ▶`, open `▾ MORE` and `DATE…`, win once and
+the `⏎ ENTER` / `⌫ DELETE` hint buttons), step days with `◀ ▶`, open `▾ MORE` and `DATE…`, win once and
 confirm the celebration hands back to the compact board. Repeat in the
 Desktop app's Code tab and at about 60 columns (the controls stack). The full
 list is in `VERIFY.md` under "Stage 09".

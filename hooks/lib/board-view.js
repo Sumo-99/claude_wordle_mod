@@ -1,3 +1,4 @@
+import { recentDates } from './archive.js'
 import { gameScore, hiScore, keyLook, livesText, pad, PALETTE, stageLabel, stepStage, tileLook } from './arcade.js'
 import { celebrationRows, MIN_COLUMNS, MIN_ROWS } from './fireworks.js'
 import { MAX_GUESSES, WORD_LENGTH } from './game-engine.js'
@@ -100,7 +101,7 @@ const FRAME_PADDING = 1 // blank rows above and below the board inside the frame
 /** From this many columns the controls sit beside the board; narrower, under it. */
 export const SIDE_BY_SIDE_MIN = 2 + LEFT_COL + 1 + RIGHT_COL
 const MAX_WIDTH = 78
-const BAR_WIDTH = 4
+const BAR_WIDTH = 24
 
 /** One tile: 3 columns, one row, ` X ` on a fill. A letterless tile is just the fill. */
 const tile = (h, Box, Text, key, fill, letter, color) =>
@@ -280,8 +281,20 @@ const subtitle = (h, Text, puzzle, today) => {
   return h(Text, { key: 'subtitle', color: PALETTE.subtitle, bold: true }, 'PRACTICE STAGE')
 }
 
-/** The games-played line and the 1–6 distribution, opened by ▾ MORE (one row each, under the hint line). */
-const statsDetails = (h, Box, Text, Button, stats, isConfirmingClear, on) => {
+/**
+ * A big on-demand container under the compact layout (▾ MORE, DATE…): its own round
+ * frame, as wide as the one above. It may be as tall as it likes; the person scrolls to it.
+ */
+const drawer = (h, Box, Text, key, title, ...children) =>
+  h(
+    Box,
+    { key, flexDirection: 'column', gap: 1, borderStyle: 'round', borderColor: PALETTE.walls, backgroundColor: PALETTE.panel, paddingX: 2, paddingY: 1 },
+    h(Text, { color: PALETTE.title, bold: true }, title),
+    ...children,
+  )
+
+/** ▾ MORE: games played, the 1–6 distribution as bars, and Clear stats. */
+const statsDrawer = (h, Box, Text, Button, stats, isConfirmingClear, on) => {
   const most = Math.max(1, ...stats.distribution)
   const bars = stats.distribution.map((n, i) => {
     const width = n === 0 ? 0 : Math.max(1, Math.round((n / most) * BAR_WIDTH))
@@ -290,18 +303,21 @@ const statsDetails = (h, Box, Text, Button, stats, isConfirmingClear, on) => {
       Box,
       { key: `dist${i}`, flexDirection: 'row', gap: 1 },
       h(Text, { color: PALETTE.dim }, String(i + 1)),
-      width > 0 && h(Text, { color: PALETTE.correct }, '█'.repeat(width)),
-      h(Text, { color: n === 0 ? PALETTE.dim : PALETTE.text }, String(n)),
+      h(Text, { color: PALETTE.correct }, width > 0 ? '█'.repeat(width) : ''),
+      h(Text, { color: n === 0 ? PALETTE.dim : PALETTE.text, bold: n > 0 }, String(n)),
     )
   })
 
-  return h(
+  return drawer(
+    h,
     Box,
-    { key: 'stats-details', flexDirection: 'column' },
+    Text,
+    'stats-details',
+    'STATS',
     h(
       Box,
-      { flexDirection: 'row', gap: 3 },
-      h(Text, { color: PALETTE.text }, `PLAYED ${stats.played} · WON ${stats.wins}`),
+      { flexDirection: 'row', justifyContent: 'space-between' },
+      h(Text, { color: PALETTE.text, bold: true }, `PLAYED ${stats.played} · WON ${stats.wins}`),
       // dim until the pointer or focus is on it; the first press only arms it
       h(Button, {
         key: 'clear-stats',
@@ -311,7 +327,31 @@ const statsDetails = (h, Box, Text, Button, stats, isConfirmingClear, on) => {
         onPress: () => on.clearStats(),
       }),
     ),
-    h(Box, { flexDirection: 'row', gap: 2 }, ...bars),
+    h(Box, { flexDirection: 'column' }, h(Text, { color: PALETTE.dim }, 'WINS BY GUESS'), ...bars),
+  )
+}
+
+/** DATE…: pick one of the last 14 days from a list, or type any past date, to play it as a practice stage. */
+const dateDrawer = (h, Box, Text, Input, Select, { puzzle, today }, on) => {
+  const dates = recentDates(today)
+  const options = dates.map(date => ({ value: date, label: date === today ? `${stageLabel(date)} · ${date} (today)` : `${stageLabel(date)} · ${date}` }))
+
+  return drawer(
+    h,
+    Box,
+    Text,
+    'date-drawer',
+    'PICK A STAGE',
+    h(Select, {
+      key: 'archive-pick',
+      label: 'Last 14 days', // the Select draws its own colon after it
+      options,
+      value: puzzle && dates.includes(puzzle.date) ? puzzle.date : today,
+      onSelect: value => on.pickDate(value),
+    }),
+    // no autoFocus: the guess field owns the keyboard, letters here would be lost guesses
+    h(Input, { key: 'archive-date', label: 'Or a date', placeholder: 'YYYY-MM-DD', submitLabel: 'play', onSubmit: text => on.pickDate(text) }),
+    h(Text, { color: PALETTE.dim }, 'ANY DAY FROM 2021-06-19 UP TO TODAY · PRACTICE STAGES DON’T COUNT TOWARD YOUR STATS'),
   )
 }
 
@@ -320,12 +360,12 @@ const statsDetails = (h, Box, Text, Button, stats, isConfirmingClear, on) => {
  * factory `h`, the surface's elements, and the press callbacks, so this file
  * never touches the engine's `$`.
  *
- * @param ui `{ h, Box, Text, Button, Input }`
+ * @param ui `{ h, Box, Text, Button, Input, Select }`
  * @param view `{ game, draft, puzzle, today, stats, isStatsOpen, isConfirmingClear, isDateEntryOpen, isFieldBlanked, celebrationFrame, isMotionReduced, screen, layout }`; `celebrationFrame` >= 0 shows the win screen instead of the board; `screen` is `{ columns, rows }`, the win screen's size; `layout` is `{ columns }`, the pane body's width, which picks side by side or stacked; `game` null means still loading
  * @param on `{ letter(ch), enter(), backspace(), input(text), pickDate(date), stepStage(dir), toggleStats(), toggleDateEntry(), clearStats(), fallbackInfo(), skipCelebration() }`
  */
 export const renderBoard = (ui, view, on) => {
-  const { h, Box, Text, Button, Input } = ui
+  const { h, Box, Text, Button, Input, Select } = ui
   const { game, draft, puzzle, today, stats, isStatsOpen, isConfirmingClear, isDateEntryOpen, celebrationFrame, isMotionReduced, screen, layout } = view
   if (celebrationFrame >= 0) return celebrationScreen(h, Box, Text, Button, celebrationFrame, screen, isMotionReduced, on)
   if (!game) {
@@ -382,23 +422,21 @@ export const renderBoard = (ui, view, on) => {
           ? h(Text, { color: PALETTE.dim }, '◀ ▶ PICK ANOTHER STAGE · ESC TO EXIT')
           : [
               h(Text, { key: 'h0', color: PALETTE.dim }, 'TYPE TO PLAY · '),
-              h(Button, { key: 'hotkey-enter', label: 'ENTER', hotkey: ENTER_KEY, plain: true, dimColor: true, onPress: () => on.enter() }),
+              h(Button, { key: 'hotkey-enter', label: '⏎ ENTER', plain: true, dimColor: true, onPress: () => on.enter() }),
               h(Text, { key: 'h1', color: PALETTE.dim }, ' · '),
-              h(Button, { key: 'hotkey-back', label: 'DELETE', hotkey: BACKSPACE_KEY, plain: true, dimColor: true, onPress: () => on.backspace() }),
+              h(Button, { key: 'hotkey-back', label: '⌫ DELETE', plain: true, dimColor: true, onPress: () => on.backspace() }),
               h(Text, { key: 'h2', color: PALETTE.dim }, ' · ESC TO EXIT'),
             ],
       ),
       h(
         Box,
-        { key: 'footer-right', flexDirection: 'row', columnGap: 2 },
-        h(Button, { key: 'stats-toggle', label: isStatsOpen ? '▴ LESS' : '▾ MORE', plain: true, dimColor: true, onPress: () => on.toggleStats() }),
+        { key: 'footer-right', flexDirection: 'row', columnGap: 3, paddingRight: 6 },
         date !== today && h(Button, { key: 'play-today', label: '▶ TODAY', plain: true, onPress: () => on.pickDate(today) }),
-        h(Button, { key: 'date-entry', label: 'DATE…', plain: true, dimColor: true, onPress: () => on.toggleDateEntry() }),
+        h(Button, { key: 'date-entry', label: isDateEntryOpen ? '▴ DATE…' : 'DATE…', plain: true, dimColor: true, onPress: () => on.toggleDateEntry() }),
+        h(Button, { key: 'stats-toggle', label: isStatsOpen ? '▴ LESS' : '▾ MORE', plain: true, dimColor: true, onPress: () => on.toggleStats() }),
       ),
     ),
-    isStatsOpen && statsDetails(h, Box, Text, Button, stats, isConfirmingClear, on),
-    // no autoFocus: the guess field owns the keyboard, letters here would be lost guesses
-    isDateEntryOpen &&
-      h(Input, { key: 'archive-date', label: 'DATE', placeholder: 'YYYY-MM-DD', submitLabel: 'play', onSubmit: text => on.pickDate(text) }),
+    isStatsOpen && statsDrawer(h, Box, Text, Button, stats, isConfirmingClear, on),
+    isDateEntryOpen && dateDrawer(h, Box, Text, Input, Select, view, on),
   )
 }
