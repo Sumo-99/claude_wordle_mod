@@ -41,32 +41,6 @@ auto-opened pane doesn't take the keyboard from your prompt, and the
 platform only seats it in terminals at least 144 columns wide; `/wordle`
 typed by you has no width limit.
 
-## Opening splash
-
-Every time the pane opens it plays a short arcade attract screen, "Chomp &
-grade", then hands off: to today's game, or to the Pick a game screen when
-today is already finished. In a double-line frame (78 × 11, centred in a
-bigger pane), under a `1UP 00000 · HI-SCORE · STAGE` line:
-
-1. **Chomp** (0–2.5 s): an eater runs left to right across a row of pellets,
-   and behind it the block-letter **WORDLE** appears as scored tiles: W green,
-   O amber, R green, D gray, L amber, E green. The eater takes the color of the
-   letter it is in.
-2. **Grade** (2.6–3.0 s): a green wave turns every letter green, with
-   `✓ ✓ ✓ ✓ ✓ ✓` underneath.
-3. **Flash** (3.0–3.15 s), then **settle** (to 4.0 s): the title turns
-   terracotta, **READY!** blinks, and `DAILY PUZZLE · PRESS ANY KEY TO SKIP`
-   (or `PICK YOUR NEXT GAME · …`) shows.
-
-Any key, a click on the skip line, or `1` skips it straight to the hand-off.
-The key you press to skip never lands in your guess. When auto-open brings
-the pane up, a 2-second cut plays instead (a faster chomp, no grade or flash),
-and only when the pane wasn't already open: a pane you're playing in is never
-interrupted. `/wordle config reduce-motion on` replaces it with the settled
-picture for 1 second. In a pane narrower than 41 columns the title is a plain
-`W O R D L E`; in a short one the score line and then the skip line give way
-first. Resizing never restarts it, and it never changes your games or stats.
-
 ## Playing
 
 You get six guesses at the day's five-letter word. The pane is a compact
