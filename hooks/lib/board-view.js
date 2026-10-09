@@ -90,29 +90,152 @@ const celebrationScreen = (h, Box, Text, Button, frame, screen, reducedMotion, o
 
 // ---- the compact arcade board (docs/ui-ref/wordle-compact-options.png, panel 1) ----
 
-const TILE = 3 // columns per tile and per key chip; both are one row tall
-const BOARD_WIDTH = WORD_LENGTH * TILE + (WORD_LENGTH - 1)
-const KEYBOARD_WIDTH = KEY_ROWS[0].length * (TILE + 1) - 1
-const LEFT_PAD = 2
-const LEFT_COL = BOARD_WIDTH + LEFT_PAD * 2
-const RIGHT_PAD = 2
-const RIGHT_COL = 45 + RIGHT_PAD * 2 // the widest right-hand row (stats and stage) plus its padding
 const FRAME_PADDING = 1 // blank rows above and below the board inside the frame
-/** From this many columns the controls sit beside the board; narrower, under it. */
-export const SIDE_BY_SIDE_MIN = 2 + LEFT_COL + 1 + RIGHT_COL
-const MAX_WIDTH = 78
+const FRAME_BORDER = 2 // the round frame's two border columns (and its two border rows)
+const DIVIDER = 1 // the faint │ between board and controls
+const STATS_ROW = 45 // the widest right-hand row other than the keyboard (stats and stage)
 const BAR_WIDTH = 24
 
-/** One tile: 3 columns, one row, ` X ` on a fill. A letterless tile is just the fill. */
-const tile = (h, Box, Text, key, fill, letter, color) =>
-  h(Box, { key, width: TILE }, h(Text, { color, backgroundColor: fill, bold: true }, ` ${letter} `))
+/** The columns of the board and controls columns with `tile`- and `chip`-wide cells and `pad` either side. */
+const sizesFor = (tile, chip, pad) => {
+  const keyboard = KEY_ROWS[0].length * (chip + 1) - 1
+
+  return { tile, chip, pad, keyboard, board: WORD_LENGTH * tile + (WORD_LENGTH - 1) + pad * 2, controls: Math.max(keyboard, STATS_ROW) + pad * 2 }
+}
+const sideBySideWidth = s => FRAME_BORDER + s.board + DIVIDER + s.controls
+
+/** Side by side, widest first: 5-column tiles and chips (99 columns), 5-column tiles (85), all 3 (from 75). */
+const SIDE_BY_SIDE = [sizesFor(5, 5, 2), sizesFor(5, 3, 2), sizesFor(3, 3, 2)]
+/** From this many columns the controls sit beside the board; narrower, they stack under it. */
+export const SIDE_BY_SIDE_MIN = sideBySideWidth(SIDE_BY_SIDE.at(-1))
+/** The compact layout's width when there is room (the stage 09 reference): its controls take the extra columns. */
+export const COMPACT_WIDTH = 78
+
+/** Stacked: the controls take the widest chips and padding that fit `columns`, the board the widest tiles. */
+const stackedSizes = columns => {
+  const fits = s => FRAME_BORDER + s.controls <= columns
+  const pad = [2, 1, 0].find(p => fits(sizesFor(3, 3, p))) ?? 0
+  const chip = fits(sizesFor(3, 5, pad)) ? 5 : 3
+  const tile = FRAME_BORDER + sizesFor(5, chip, pad).board <= columns ? 5 : 3
+
+  return sizesFor(tile, chip, pad)
+}
+
+/**
+ * The board's sizes for a pane body `columns` wide. Side by side (unless
+ * `isStacked`): the widest layout that fits, drawn at its own width (centred;
+ * the rest is margin). Stacked, or too narrow to sit side by side: board on
+ * top, controls under it, at the full body width with the widest cells that fit.
+ */
+export const boardMetrics = (columns, isStacked = false) => {
+  const side = !isStacked && SIDE_BY_SIDE.find(s => sideBySideWidth(s) <= columns)
+  if (side === SIDE_BY_SIDE.at(-1)) return { ...side, isSideBySide: true, width: Math.min(columns, COMPACT_WIDTH) }
+  if (side) return { ...side, isSideBySide: true, width: sideBySideWidth(side) }
+
+  return { ...stackedSizes(columns), isSideBySide: false, width: columns }
+}
+
+// ---- height: the pane stacks when the body has the rows for it ----
+
+// The text the header and footer rows hold at their widest (a practice stage with
+// ▶ TODAY showing and DATE… open), so the stacked height doesn't change with the stage.
+const BADGE_TEXT = ' W O R D L E '
+const PRACTICE_TEXT = 'PRACTICE STAGE'
+const HEADER_CELLS = [['1UP', '00000'], ['HI', '00000'], ['STAGE', '27 SEP']]
+const HINT_PARTS = ['TYPE TO PLAY · ', '⏎ ENTER', ' · ', '⌫ DELETE', ' · ESC TO EXIT']
+const FOOTER_BUTTONS = ['▶ TODAY', '▴ DATE…', '▾ MORE']
+const HEADER_GAP = 2 // between the header's two halves, and between the badge and the practice line
+const HEADER_CELL_GAP = 3
+const FOOTER_GAP = 2 // between the hint and the footer's buttons
+const FOOTER_BUTTON_GAP = 3
+const FOOTER_RIGHT_PAD = 6
+
+const sum = parts => parts.reduce((n, part) => n + part, 0)
+const HEADER_WIDTH =
+  1 + BADGE_TEXT.length + 1 + HEADER_GAP + PRACTICE_TEXT.length + HEADER_GAP +
+  sum(HEADER_CELLS.map(([label, value]) => label.length + 1 + value.length)) + HEADER_CELL_GAP * (HEADER_CELLS.length - 1)
+const FOOTER_WIDTH =
+  sum(HINT_PARTS.map(part => part.length)) + FOOTER_GAP +
+  sum(FOOTER_BUTTONS.map(label => label.length)) + FOOTER_BUTTON_GAP * (FOOTER_BUTTONS.length - 1) + FOOTER_RIGHT_PAD
+/** A wrapping row of two halves: one row when it all fits, two when it doesn't. */
+const wrappedRows = (width, columns) => (width <= columns ? 1 : 2)
+const BOARD_ROWS = MAX_GUESSES + FRAME_PADDING * 2
+const CONTROL_ROWS = 1 + 1 + KEY_ROWS.length + 1 + 1 // status, field, keyboard, gap, stats and stage
+
+/** How many rows the stacked layout takes in a body `columns` wide: header, frame (board over controls), footer. */
+export const stackedRows = columns =>
+  wrappedRows(HEADER_WIDTH, columns) + FRAME_BORDER + BOARD_ROWS + CONTROL_ROWS + wrappedRows(FOOTER_WIDTH, columns)
+
+/**
+ * How the compact layout gives way when the pane is short (inline it gets about a
+ * third of the terminal): first the blank rows around the board, then the one above
+ * the stats row, then the header, then the frame's border, so the board, the keyboard
+ * and the footer bar (DATE…, ▾ MORE) always show. Fullest first.
+ */
+const COMPACT_FITS = [
+  { boardPad: FRAME_PADDING, hasGap: true, hasHeader: true, hasBorder: true },
+  { boardPad: 0, hasGap: true, hasHeader: true, hasBorder: true },
+  { boardPad: 0, hasGap: false, hasHeader: true, hasBorder: true },
+  { boardPad: 0, hasGap: false, hasHeader: false, hasBorder: true },
+  { boardPad: 0, hasGap: false, hasHeader: true, hasBorder: false },
+  { boardPad: 0, hasGap: false, hasHeader: false, hasBorder: false },
+]
+/** The frame's inside rows: the taller of the board (with its padding) and the controls. */
+const fitBodyRows = fit => Math.max(MAX_GUESSES + fit.boardPad * 2, CONTROL_ROWS - (fit.hasGap ? 0 : 1))
+/** A fit's rows: header, frame border, frame body, footer. */
+export const fitRows = fit => (fit.hasHeader ? 1 : 0) + (fit.hasBorder ? FRAME_BORDER : 0) + fitBodyRows(fit) + 1
+/** The fullest compact layout that fits `bodyRows` (all of it while the rows are unknown). */
+export const compactFit = bodyRows => COMPACT_FITS.find(fit => bodyRows == null || fitRows(fit) <= bodyRows) ?? COMPACT_FITS.at(-1)
+
+/** The side-by-side layout's rows with room to spare: header, frame (the board beside the controls), footer. */
+export const SIDE_BY_SIDE_ROWS = fitRows(COMPACT_FITS[0])
+
+/** From this many body rows the pane stacks: the stacked layout's own height and two to spare. */
+export const stackAt = columns => stackedRows(columns) + 2
+/** Once stacked, the pane stays stacked until the body is this many rows short of the threshold. */
+export const STACK_GAP = 2
+
+/**
+ * Whether the pane draws stacked. Too narrow to sit side by side: always.
+ * Otherwise it opens compact, side by side, whatever its height (`openRows`,
+ * the rows it opened with, is still unknown on the first draw), and stacks only
+ * once the body has grown past those rows to `stackAt` or more (the width
+ * fitting the stacked layout). A pane that `wasStacked` keeps stacking until
+ * the body is `STACK_GAP` rows short of that, so it doesn't flicker on the edge.
+ */
+export const isStackedLayout = (columns, bodyRows, wasStacked = false, openRows = null) => {
+  if (!boardMetrics(columns).isSideBySide) return true
+  if (bodyRows == null || openRows == null) return false
+  if (FRAME_BORDER + stackedSizes(columns).controls > columns) return false
+
+  return bodyRows >= Math.max(stackAt(columns), openRows + 1) - (wasStacked ? STACK_GAP : 0)
+}
+
+/**
+ * The footer's right margin: the full margin when it fits, less when it doesn't,
+ * so side by side the footer stays one row (the compact layout's 12) whatever the
+ * buttons say. Stacked, the footer wraps instead and keeps the full margin.
+ */
+const footerPad = (width, hintWidth, labels, isSideBySide) => {
+  if (!isSideBySide) return FOOTER_RIGHT_PAD
+  const used = hintWidth + FOOTER_GAP + sum(labels.map(label => label.length)) + FOOTER_BUTTON_GAP * (labels.length - 1)
+
+  return Math.max(0, Math.min(FOOTER_RIGHT_PAD, width - used))
+}
+
+/** `glyph` centred in an odd `width`: ` X `, `  X  `. */
+const centred = (glyph, width) => `${' '.repeat((width - 1) / 2)}${glyph}${' '.repeat((width - 1) / 2)}`
+
+/** One tile: one row, the letter centred on a fill. A letterless tile is just the fill. */
+const tile = (h, Box, Text, key, width, fill, letter, color) =>
+  h(Box, { key, width }, h(Text, { color, backgroundColor: fill, bold: true }, centred(letter, width)))
 
 /** A spot with no tile yet: a pellet (`●`, a power pellet, in the last row's corners). */
-const pellet = (h, Box, Text, key, glyph) =>
-  h(Box, { key, width: TILE }, h(Text, { color: PALETTE.pellet }, ` ${glyph} `))
+const pellet = (h, Box, Text, key, width, glyph) =>
+  h(Box, { key, width }, h(Text, { color: PALETTE.pellet }, centred(glyph, width)))
 
 /** Row `r` of the board: scored tiles, the row being typed (with its ▌ cursor), or pellets. */
-const tileRow = (h, Box, Text, game, draft, r) => {
+const tileRow = (h, Box, Text, game, draft, r, width) => {
   const played = game.guesses[r]
   const isActive = r === game.guesses.length && game.status === 'playing'
   const cells = Array.from({ length: WORD_LENGTH }, (_, i) => {
@@ -120,42 +243,43 @@ const tileRow = (h, Box, Text, game, draft, r) => {
     if (played) {
       const look = tileLook(played.score[i])
 
-      return tile(h, Box, Text, key, look.fill, played.word[i].toUpperCase(), look.letter)
+      return tile(h, Box, Text, key, width, look.fill, played.word[i].toUpperCase(), look.letter)
     }
-    if (isActive && draft[i]) return tile(h, Box, Text, key, PALETTE.active, draft[i].toUpperCase(), PALETTE.text)
-    if (isActive && i === draft.length) return tile(h, Box, Text, key, PALETTE.active, '▌', PALETTE.accent)
-    if (isActive) return tile(h, Box, Text, key, PALETTE.active, ' ', PALETTE.text)
+    if (isActive && draft[i]) return tile(h, Box, Text, key, width, PALETTE.active, draft[i].toUpperCase(), PALETTE.text)
+    if (isActive && i === draft.length) return tile(h, Box, Text, key, width, PALETTE.active, '▌', PALETTE.accent)
+    if (isActive) return tile(h, Box, Text, key, width, PALETTE.active, ' ', PALETTE.text)
     const isPower = r === MAX_GUESSES - 1 && (i === 0 || i === WORD_LENGTH - 1)
 
-    return pellet(h, Box, Text, key, isPower ? '●' : '•')
+    return pellet(h, Box, Text, key, width, isPower ? '●' : '•')
   })
 
   return h(Box, { key: `row${r}`, flexDirection: 'row', gap: 1 }, ...cells)
 }
 
-/** A key chip: a filled 3×1 Box holding a plain Button (a Button's label can't be colored, only the chip). */
-const chip = (h, Box, Button, boxKey, fill, button) =>
-  h(Box, { key: boxKey, width: TILE, backgroundColor: fill, justifyContent: 'center' }, h(Button, { plain: true, ...button }))
+/** A key chip: a filled `width`×1 Box holding a plain Button (a Button's label can't be colored, only the chip). */
+const chip = (h, Box, Button, boxKey, width, fill, button) =>
+  h(Box, { key: boxKey, width, backgroundColor: fill, justifyContent: 'center' }, h(Button, { plain: true, ...button }))
 
 /** The on-screen keyboard: chips colored by best known state; a known miss is just a dim · (an eaten pellet). */
-const keyboard = (h, Box, Text, Button, game, on) => {
+const keyboard = (h, Box, Text, Button, game, metrics, on) => {
   const states = keyStates(game)
   const isOver = game.status !== 'playing'
+  const width = metrics.chip
   const rows = KEY_ROWS.map((row, i) => {
     const keys = [...row].map(ch => {
       const look = keyLook(states[ch])
       if (look.isEaten) {
-        return h(Box, { key: `kx-${ch}`, width: TILE, justifyContent: 'center' }, h(Text, { color: PALETTE.dim }, '·'))
+        return h(Box, { key: `kx-${ch}`, width, justifyContent: 'center' }, h(Text, { color: PALETTE.dim }, '·'))
       }
 
-      return chip(h, Box, Button, `kc-${ch}`, look.fill, { key: `k-${ch}`, label: ch.toUpperCase(), dimColor: isOver, onPress: () => on.letter(ch) })
+      return chip(h, Box, Button, `kc-${ch}`, width, look.fill, { key: `k-${ch}`, label: ch.toUpperCase(), dimColor: isOver, onPress: () => on.letter(ch) })
     })
     if (i === 2) {
-      keys.unshift(chip(h, Box, Button, 'kc-enter', PALETTE.accent, { key: 'enter', label: '⏎', dimColor: isOver, onPress: () => on.enter() }))
-      keys.push(chip(h, Box, Button, 'kc-back', PALETTE.keyIdle, { key: 'back', label: '⌫', dimColor: isOver, onPress: () => on.backspace() }))
+      keys.unshift(chip(h, Box, Button, 'kc-enter', width, PALETTE.accent, { key: 'enter', label: '⏎', dimColor: isOver, onPress: () => on.enter() }))
+      keys.push(chip(h, Box, Button, 'kc-back', width, PALETTE.keyIdle, { key: 'back', label: '⌫', dimColor: isOver, onPress: () => on.backspace() }))
     }
 
-    return h(Box, { key: `krow${i}`, flexDirection: 'row', gap: 1, justifyContent: i === 1 ? 'center' : 'flex-start', width: KEYBOARD_WIDTH }, ...keys)
+    return h(Box, { key: `krow${i}`, flexDirection: 'row', gap: 1, justifyContent: i === 1 ? 'center' : 'flex-start', width: metrics.keyboard }, ...keys)
   })
 
   return h(Box, { key: 'keyboard', flexDirection: 'column' }, ...rows)
@@ -193,7 +317,7 @@ const statsStageRow = (h, Box, Text, Button, { stats, puzzle, today }, on) => {
 
   return h(
     Box,
-    { key: 'stats', flexDirection: 'row', gap: 2 },
+    { key: 'stats', flexDirection: 'row', flexWrap: 'wrap', columnGap: 2 },
     statPair(h, Box, Text, 'streak', 'STREAK', PALETTE.streak, pad(stats.currentStreak, 2)),
     statPair(h, Box, Text, 'best', 'BEST', PALETTE.best, pad(stats.maxStreak, 2)),
     statPair(h, Box, Text, 'win', 'WIN%', PALETTE.winPercent, pad(winPercent(stats), 2)),
@@ -209,14 +333,14 @@ const statsStageRow = (h, Box, Text, Button, { stats, puzzle, today }, on) => {
 }
 
 /** The right-hand column: status, typing field, keyboard, stats and stage, in the reference's 7 rows. */
-const controls = (h, ui, view, on) => {
+const controls = (h, ui, view, metrics, fit, on) => {
   const { Box, Text, Button, Input } = ui
   const { game, draft, isFieldBlanked } = view
   const isOver = game.status !== 'playing'
 
   return h(
     Box,
-    { key: 'controls', flexDirection: 'column', justifyContent: 'center', flexGrow: 1, paddingX: RIGHT_PAD },
+    { key: 'controls', flexDirection: 'column', justifyContent: 'center', flexGrow: 1, paddingX: metrics.pad },
     statusRow(h, Box, Text, game),
     // The typing surface: the field edits `draft` natively (Backspace deletes the last
     // letter, Enter submits); the chips feed the same draft. It sits where the reference
@@ -234,26 +358,26 @@ const controls = (h, ui, view, on) => {
           onInput: text => on.input(text),
           onSubmit: () => on.enter(),
         }),
-    keyboard(h, Box, Text, Button, game, on),
-    h(Text, { key: 'gap' }, ' '),
+    keyboard(h, Box, Text, Button, game, metrics, on),
+    fit.hasGap && h(Text, { key: 'gap' }, ' '),
     statsStageRow(h, Box, Text, Button, view, on),
   )
 }
 
 /** The board column: six tile rows, nothing between them. */
-const board = (h, Box, Text, game, draft) =>
+const board = (h, Box, Text, game, draft, metrics, fit) =>
   h(
     Box,
-    { key: 'board', flexDirection: 'column', width: LEFT_COL, paddingX: LEFT_PAD, paddingY: FRAME_PADDING },
-    ...Array.from({ length: MAX_GUESSES }, (_, r) => tileRow(h, Box, Text, game, draft, r)),
+    { key: 'board', flexDirection: 'column', justifyContent: 'center', width: metrics.board, paddingX: metrics.pad, paddingY: fit.boardPad },
+    ...Array.from({ length: MAX_GUESSES }, (_, r) => tileRow(h, Box, Text, game, draft, r, metrics.tile)),
   )
 
 /** The faint line between board and controls: one column of │, as tall as the frame's body. */
-const divider = (h, Box, Text) =>
+const divider = (h, Box, Text, fit) =>
   h(
     Box,
     { key: 'divider', flexDirection: 'column', width: 1 },
-    ...Array.from({ length: MAX_GUESSES + FRAME_PADDING * 2 }, (_, i) => h(Text, { key: `d${i}`, color: PALETTE.divider }, '│')),
+    ...Array.from({ length: fitBodyRows(fit) }, (_, i) => h(Text, { key: `d${i}`, color: PALETTE.divider }, '│')),
   )
 
 /** The WORDLE badge: bold spaced letters in the background color on a title-colored fill, ▐ ▌ in the accent color on each side. */
@@ -262,7 +386,7 @@ const badge = (h, Box, Text) =>
     Box,
     { key: 'badge', flexDirection: 'row' },
     h(Text, { color: PALETTE.accent }, '▐'),
-    h(Text, { color: PALETTE.background, backgroundColor: PALETTE.title, bold: true }, ' W O R D L E '),
+    h(Text, { color: PALETTE.background, backgroundColor: PALETTE.title, bold: true }, BADGE_TEXT),
     h(Text, { color: PALETTE.accent }, '▌'),
   )
 
@@ -278,7 +402,7 @@ const subtitle = (h, Text, puzzle, today) => {
     return h(Text, { key: 'subtitle', color: PALETTE.present, bold: true }, `A NEW DAY HAS STARTED · ${stageLabel(puzzle.date)} IS NOW PRACTICE`)
   }
 
-  return h(Text, { key: 'subtitle', color: PALETTE.subtitle, bold: true }, 'PRACTICE STAGE')
+  return h(Text, { key: 'subtitle', color: PALETTE.subtitle, bold: true }, PRACTICE_TEXT)
 }
 
 /**
@@ -361,7 +485,7 @@ const dateDrawer = (h, Box, Text, Input, Select, { puzzle, today }, on) => {
  * never touches the engine's `$`.
  *
  * @param ui `{ h, Box, Text, Button, Input, Select }`
- * @param view `{ game, draft, puzzle, today, stats, isStatsOpen, isConfirmingClear, isDateEntryOpen, isFieldBlanked, celebrationFrame, isMotionReduced, screen, layout }`; `celebrationFrame` >= 0 shows the win screen instead of the board; `screen` is `{ columns, rows }`, the win screen's size; `layout` is `{ columns }`, the pane body's width, which picks side by side or stacked; `game` null means still loading
+ * @param view `{ game, draft, puzzle, today, stats, isStatsOpen, isConfirmingClear, isDateEntryOpen, isFieldBlanked, celebrationFrame, isMotionReduced, screen, layout }`; `celebrationFrame` >= 0 shows the win screen instead of the board; `screen` is `{ columns, rows }`, the win screen's size; `layout` is `{ columns, rows, isStacked }`: the pane body's width, which sizes the tiles and chips, its rows (when known), which the compact layout fits (see `compactFit`), and whether to stack (see `isStackedLayout`); `game` null means still loading
  * @param on `{ letter(ch), enter(), backspace(), input(text), pickDate(date), stepStage(dir), toggleStats(), toggleDateEntry(), clearStats(), fallbackInfo(), skipCelebration() }`
  */
 export const renderBoard = (ui, view, on) => {
@@ -372,71 +496,85 @@ export const renderBoard = (ui, view, on) => {
     return h(Box, { flexDirection: 'column', backgroundColor: PALETTE.background }, h(Text, { color: PALETTE.dim }, 'LOADING TODAY’S STAGE…'))
   }
 
-  const isSideBySide = layout.columns >= SIDE_BY_SIDE_MIN
-  const width = Math.min(layout.columns, MAX_WIDTH)
+  const metrics = boardMetrics(layout.columns, layout.isStacked)
+  const { isSideBySide, width } = metrics
+  // side by side it fits the pane's rows (the footer bar always in view); stacked only comes with room to spare
+  const fit = isSideBySide ? compactFit(layout.rows) : COMPACT_FITS[0]
   const isOver = game.status !== 'playing'
   const date = puzzle?.date ?? today
+  const [typeToPlay, enterLabel, dot, deleteLabel, escToExit] = HINT_PARTS
+  const overHint = '◀ ▶ PICK ANOTHER STAGE · ESC TO EXIT'
+  const todayLabel = date !== today ? '▶ TODAY' : null
+  const dateLabel = isDateEntryOpen ? '▴ DATE…' : 'DATE…'
+  const statsLabel = isStatsOpen ? '▴ LESS' : '▾ MORE'
+  const hintWidth = isOver ? overHint.length : sum(HINT_PARTS.map(part => part.length))
+  const rightPad = footerPad(width, hintWidth, [todayLabel, dateLabel, statsLabel].filter(Boolean), isSideBySide)
 
+  // the layout is drawn at its own width, centred in the body: spare columns are margin
   return h(
     Box,
-    { flexDirection: 'column', width, backgroundColor: PALETTE.background },
+    { key: 'pane', width: layout.columns, alignItems: 'center' },
     h(
       Box,
-      { key: 'header', flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', columnGap: 2 },
+      { key: 'layout', flexDirection: 'column', width, backgroundColor: PALETTE.background },
+      fit.hasHeader &&
+        h(
+          Box,
+          { key: 'header', flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', columnGap: HEADER_GAP },
+          h(
+            Box,
+            { key: 'header-left', flexDirection: 'row', columnGap: HEADER_GAP },
+            badge(h, Box, Text),
+            subtitle(h, Text, puzzle, today),
+            puzzle?.source === 'fallback' && h(Button, { key: 'fallback-warning', label: '⚠ OFFLINE', plain: true, onPress: () => on.fallbackInfo() }),
+          ),
+          h(
+            Box,
+            { key: 'header-right', flexDirection: 'row', columnGap: HEADER_CELL_GAP },
+            headerCell(h, Box, Text, 'score', '1UP', pad(gameScore(game), 5)),
+            headerCell(h, Box, Text, 'hi-score', 'HI', pad(hiScore(stats), 5)),
+            headerCell(h, Box, Text, 'stage-date', 'STAGE', stageLabel(date)),
+          ),
+        ),
       h(
         Box,
-        { key: 'header-left', flexDirection: 'row', columnGap: 2 },
-        badge(h, Box, Text),
-        subtitle(h, Text, puzzle, today),
-        puzzle?.source === 'fallback' && h(Button, { key: 'fallback-warning', label: '⚠ OFFLINE', plain: true, onPress: () => on.fallbackInfo() }),
+        {
+          key: 'frame',
+          flexDirection: isSideBySide ? 'row' : 'column',
+          alignItems: isSideBySide ? 'stretch' : 'center',
+          ...(fit.hasBorder && { borderStyle: 'round', borderColor: PALETTE.walls }),
+          backgroundColor: PALETTE.panel,
+        },
+        board(h, Box, Text, game, draft, metrics, fit),
+        isSideBySide && divider(h, Box, Text, fit),
+        controls(h, ui, view, metrics, fit, on),
       ),
       h(
         Box,
-        { key: 'header-right', flexDirection: 'row', columnGap: 3 },
-        headerCell(h, Box, Text, 'score', '1UP', pad(gameScore(game), 5)),
-        headerCell(h, Box, Text, 'hi-score', 'HI', pad(hiScore(stats), 5)),
-        headerCell(h, Box, Text, 'stage-date', 'STAGE', stageLabel(date)),
+        { key: 'footer', flexDirection: 'row', flexWrap: isSideBySide ? 'nowrap' : 'wrap', justifyContent: 'space-between', columnGap: FOOTER_GAP },
+        h(
+          Box,
+          { key: 'hint', flexDirection: 'row' },
+          isOver
+            ? h(Text, { color: PALETTE.dim }, overHint)
+            : [
+                h(Text, { key: 'h0', color: PALETTE.dim }, typeToPlay),
+                h(Button, { key: 'hotkey-enter', label: enterLabel, plain: true, dimColor: true, onPress: () => on.enter() }),
+                h(Text, { key: 'h1', color: PALETTE.dim }, dot),
+                h(Button, { key: 'hotkey-back', label: deleteLabel, plain: true, dimColor: true, onPress: () => on.backspace() }),
+                h(Text, { key: 'h2', color: PALETTE.dim }, escToExit),
+              ],
+        ),
+        h(
+          Box,
+          { key: 'footer-right', flexDirection: 'row', columnGap: FOOTER_BUTTON_GAP, paddingRight: rightPad },
+          todayLabel && h(Button, { key: 'play-today', label: todayLabel, plain: true, onPress: () => on.pickDate(today) }),
+          h(Button, { key: 'date-entry', label: dateLabel, plain: true, dimColor: true, onPress: () => on.toggleDateEntry() }),
+          h(Button, { key: 'stats-toggle', label: statsLabel, plain: true, dimColor: true, onPress: () => on.toggleStats() }),
+        ),
       ),
+      isStatsOpen && statsDrawer(h, Box, Text, Button, stats, isConfirmingClear, on),
+      isDateEntryOpen && dateDrawer(h, Box, Text, Input, Select, view, on),
     ),
-    h(
-      Box,
-      {
-        key: 'frame',
-        flexDirection: isSideBySide ? 'row' : 'column',
-        alignItems: isSideBySide ? 'stretch' : 'center',
-        borderStyle: 'round',
-        borderColor: PALETTE.walls,
-        backgroundColor: PALETTE.panel,
-      },
-      board(h, Box, Text, game, draft),
-      isSideBySide && divider(h, Box, Text),
-      controls(h, ui, view, on),
-    ),
-    h(
-      Box,
-      { key: 'footer', flexDirection: 'row', justifyContent: 'space-between' },
-      h(
-        Box,
-        { key: 'hint', flexDirection: 'row' },
-        isOver
-          ? h(Text, { color: PALETTE.dim }, '◀ ▶ PICK ANOTHER STAGE · ESC TO EXIT')
-          : [
-              h(Text, { key: 'h0', color: PALETTE.dim }, 'TYPE TO PLAY · '),
-              h(Button, { key: 'hotkey-enter', label: '⏎ ENTER', plain: true, dimColor: true, onPress: () => on.enter() }),
-              h(Text, { key: 'h1', color: PALETTE.dim }, ' · '),
-              h(Button, { key: 'hotkey-back', label: '⌫ DELETE', plain: true, dimColor: true, onPress: () => on.backspace() }),
-              h(Text, { key: 'h2', color: PALETTE.dim }, ' · ESC TO EXIT'),
-            ],
-      ),
-      h(
-        Box,
-        { key: 'footer-right', flexDirection: 'row', columnGap: 3, paddingRight: 6 },
-        date !== today && h(Button, { key: 'play-today', label: '▶ TODAY', plain: true, onPress: () => on.pickDate(today) }),
-        h(Button, { key: 'date-entry', label: isDateEntryOpen ? '▴ DATE…' : 'DATE…', plain: true, dimColor: true, onPress: () => on.toggleDateEntry() }),
-        h(Button, { key: 'stats-toggle', label: isStatsOpen ? '▴ LESS' : '▾ MORE', plain: true, dimColor: true, onPress: () => on.toggleStats() }),
-      ),
-    ),
-    isStatsOpen && statsDrawer(h, Box, Text, Button, stats, isConfirmingClear, on),
-    isDateEntryOpen && dateDrawer(h, Box, Text, Input, Select, view, on),
   )
 }

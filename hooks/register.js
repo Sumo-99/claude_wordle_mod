@@ -1,6 +1,6 @@
 import { atom, read, update } from 'claude-code'
 
-import { FALLBACK_NOTE, renderBoard } from './lib/board-view.js'
+import { boardMetrics, COMPACT_WIDTH, FALLBACK_NOTE, isStackedLayout, renderBoard, SIDE_BY_SIDE_MIN } from './lib/board-view.js'
 import { boardKey, checkArchiveDate } from './lib/archive.js'
 import { stepStage } from './lib/arcade.js'
 import { FRAME_MS, TOTAL_FRAMES } from './lib/fireworks.js'
@@ -30,6 +30,8 @@ const isConfirmingClear = atom({ plugin: 'wordle-mod', key: 'isConfirmingClear' 
 const isDateEntryOpen = atom({ plugin: 'wordle-mod', key: 'isDateEntryOpen' }, false)
 const celebrationFrame = atom({ plugin: 'wordle-mod', key: 'celebrationFrame' }, -1)
 const isMotionReduced = atom({ plugin: 'wordle-mod', key: 'isMotionReduced' }, false)
+const isStacked = atom({ plugin: 'wordle-mod', key: 'isStacked' }, false)
+const openRows = atom({ plugin: 'wordle-mod', key: 'openRows' }, null)
 
 const CLEAR_CONFIRM_MS = 5000
 
@@ -50,6 +52,21 @@ const today = async $ => {
 }
 
 let isLoading = false
+
+// Docked, the dock's share can be too narrow to sit side by side (49 columns at 120),
+// so the first draw asks it once for the compact layout's columns; a wider share is
+// left alone (a fixed request would narrow it). A request, not a grant: a width the
+// person drags wins. No `rows`: inline a request caps the room, so the pane couldn't
+// grow when the terminal does, and it can't buy rows the layout hasn't got to spare.
+let hasAskedWidth = false
+
+/** Opens the pane afresh: compact first, whatever the room, until the room grows. */
+const openPane = async ($, options) => {
+  hasAskedWidth = false
+  await update($, openRows, () => null)
+  await update($, isStacked, () => false)
+  await $.ui.open({ id: PANE, title: 'Wordle', closeOnEscape: true, ...options })
+}
 
 /**
  * Makes `date` the active puzzle: its word, and the saved board if that date was
@@ -301,7 +318,7 @@ export const register = on => {
 
       return { text: describeResetDone(games) }
     }
-    await $.ui.open({ id: PANE, title: 'Wordle', focus: true, closeOnEscape: true })
+    await openPane($, { focus: true })
 
     return { text: 'Wordle pane opened.' }
   })
@@ -312,7 +329,7 @@ export const register = on => {
   on('turn.start', async ($, e, next) => {
     try {
       if ((await $.store.get(AUTO_OPEN_KEY)) === true) {
-        await $.ui.open({ id: PANE, title: 'Wordle', closeOnEscape: true })
+        await openPane($, {})
       }
     } catch {
       // a refused open must never get in the way of Claude's turn
@@ -324,6 +341,13 @@ export const register = on => {
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
     if (e.requestId !== PANE) return next(e)
     const { Box, Text, Button, Input, Select } = $.ui.resolve(e)
+    // The Pane's size (this build hands it over under `e.props`): the body's width sizes
+    // the board, and its rows, once known, let it stack (board on top) when there's room.
+    const columns = e.props?.bodyColumns ?? e.viewport?.columns ?? 78
+    const bodyRows = e.props?.scroll?.bodyRows
+    const wasStacked = await read($, isStacked)
+    const rowsAtOpen = await read($, openRows)
+    const stacked = isStackedLayout(columns, bodyRows, wasStacked, rowsAtOpen)
     const view = {
       game: await read($, game),
       draft: await read($, draft),
@@ -343,9 +367,20 @@ export const register = on => {
         columns: e.props?.bodyColumns ?? e.viewport?.columns ?? 40,
         rows: Math.min(26, e.props?.scroll?.bodyRows ?? Math.max(12, (e.viewport?.rows ?? 30) - 6)),
       },
-      // the board's width, which picks side by side or stacked (this build hands the
-      // Pane's size over under `e.props`)
-      layout: { columns: e.props?.bodyColumns ?? e.viewport?.columns ?? 78 },
+      layout: { columns, rows: bodyRows, isStacked: stacked },
+    }
+
+    // A draw can't write state, so the mode just drawn is recorded right after it; the
+    // next draw reads it back for the switch-back gap (and draws the same, so it settles)
+    // only stacking the height chose counts for the gap: one the width forced (a dock
+    // still too narrow on its first draw) mustn't hold the pane stacked once it's wider
+    const isStackedByHeight = stacked && boardMetrics(columns).isSideBySide
+    if (isStackedByHeight !== wasStacked) $.clock.after(0, () => update($, isStacked, () => isStackedByHeight))
+    // the rows it opened with: stacking waits until the room grows past them
+    if (rowsAtOpen == null && bodyRows != null) $.clock.after(0, () => update($, openRows, rows => rows ?? bodyRows))
+    if (e.props?.placement === 'dock' && columns < SIDE_BY_SIDE_MIN && !hasAskedWidth) {
+      hasAskedWidth = true
+      $.clock.after(0, () => $.ui.open({ id: PANE, title: 'Wordle', closeOnEscape: true, columns: COMPACT_WIDTH }))
     }
 
     if (!view.game && !isLoading) {

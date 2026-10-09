@@ -85,9 +85,26 @@ type a date behind **DATE…**. Your board for each date is saved, so
 
 ### Pane size
 
-The pane is about 12 rows tall and fits a pane 75 columns wide or more,
-where the controls sit beside the board. In a narrower pane they stack under
-the board (about 20 rows) and the header wraps onto two lines if it has to.
+The pane opens in the compact layout, about 12 rows tall: the controls sit
+beside the board from 75 columns (78 wide when there's room), and wider panes
+get bigger tiles and keys (from 85 and 99 columns). The footer always stays
+on one row there; its right margin shrinks before it would wrap. In a pane
+narrower than 75 columns the controls stack under the board (about 20 rows).
+Docked, a dock too narrow for the compact layout is asked once for 78
+columns; a wider dock is left as it is.
+
+Inline, Claude Code gives the pane about a third of the terminal's height, so
+in a short terminal the compact layout gives way to keep the footer bar
+(DATE…, ▾ MORE) in view: first the blank rows around the board, then the one
+above the stats row, then the header, then the frame's border, down to 7 rows
+(a terminal of about 27 rows). Below that the board alone is taller than the
+pane, and the pane scrolls.
+
+It opens compact whatever the height. Make the terminal taller after that and
+once the pane has the height for the stacked layout (its rows plus two: about
+21 to 22 body rows), it stacks, board on top, with the biggest tiles and keys
+that fit. Once stacked it stays stacked until the height drops two rows below
+that, so it doesn't flicker on the edge.
 **▾ MORE** and **DATE…** each open a big framed container underneath, which can take as much room as it needs (scroll down to it); the compact layout above stays as it is.
 
 ### Offline

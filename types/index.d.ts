@@ -45,6 +45,10 @@ declare module 'claude-code' {
       celebrationFrame: number
       /** The running celebration plays its reduced-motion version (a plain fade). */
       isMotionReduced: boolean
+      /** The height made the last draw stack (board over controls), not the width; read back for the switch-back gap. Session only. */
+      isStacked: boolean
+      /** The body rows the pane had when it opened (null until its first draw); it stacks only once the room grows past them. Session only. */
+      openRows: number | null
     }
   }
 }

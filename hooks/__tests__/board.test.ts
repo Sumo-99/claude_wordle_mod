@@ -1,5 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 
+import { boardMetrics, COMPACT_WIDTH, compactFit, fitRows, isStackedLayout, SIDE_BY_SIDE_MIN, SIDE_BY_SIDE_ROWS, STACK_GAP, stackAt, stackedRows } from '../lib/board-view.js'
+
 const SOLUTION = 'prove'
 
 const ok = (body: unknown) => ({ status: 200, ok: true, headers: {}, text: JSON.stringify(body) })
@@ -943,3 +945,332 @@ test('the date picker lists the last 14 days and plays the one picked', async ($
   expect(JSON.stringify(await pane.drawn())).toContain('PRACTICE STAGE')
   expect(await pane.find({ key: 'date-drawer' } as any)).toBeUndefined() // picking a day closes the panel
 })
+
+// ---- width scaling: the tile and chip sizes come from the pane body's width ----
+
+test('boardMetrics: never wider than the body, and its parts fill its width', () => {
+  for (let columns = 47; columns <= 200; columns++) {
+    const m = boardMetrics(columns)
+    expect(m.width).toBeLessThanOrEqual(columns)
+    if (m.isSideBySide && m.tile === 3) {
+      // the compact layout: 78 wide when there's room, its controls taking the columns past 75
+      expect(m.width).toBe(Math.min(columns, COMPACT_WIDTH))
+      expect(2 + m.board + 1 + m.controls).toBeLessThanOrEqual(m.width)
+    } else if (m.isSideBySide) {
+      expect(2 + m.board + 1 + m.controls).toBe(m.width) // frame borders, board, divider, controls
+    } else {
+      expect(m.width).toBe(columns)
+      expect(2 + m.board).toBeLessThanOrEqual(columns)
+      expect(2 + m.controls).toBeLessThanOrEqual(columns)
+    }
+    expect(m.keyboard).toBe(10 * (m.chip + 1) - 1) // ten chips and their gaps
+    expect(m.controls).toBeGreaterThanOrEqual(m.keyboard + 2 * m.pad)
+  }
+})
+
+test('boardMetrics: the tiers, widest first, and they only grow with the width', () => {
+  const tier = (columns: number) => {
+    const m = boardMetrics(columns)
+
+    return [m.isSideBySide ? 'side' : 'stacked', m.tile, m.chip, m.pad, m.width]
+  }
+  expect(tier(49)).toEqual(['stacked', 5, 3, 1, 49]) // the dock at 120 columns
+  expect(tier(56)).toEqual(['stacked', 5, 3, 2, 56]) // inline at 60
+  expect(tier(74)).toEqual(['stacked', 5, 5, 2, 74]) // one short of side by side
+  expect(tier(75)).toEqual(['side', 3, 3, 2, 75]) // the compact stage 09 layout, at its narrowest
+  expect(tier(78)).toEqual(['side', 3, 3, 2, 78]) // ...and at its own width
+  expect(tier(84)).toEqual(['side', 3, 3, 2, 78])
+  expect(tier(85)).toEqual(['side', 5, 3, 2, 85])
+  expect(tier(96)).toEqual(['side', 5, 3, 2, 85]) // inline at 100
+  expect(tier(99)).toEqual(['side', 5, 5, 2, 99])
+  expect(tier(200)).toEqual(['side', 5, 5, 2, 99]) // no wider: the rest is margin
+  expect(SIDE_BY_SIDE_MIN).toBe(75)
+  expect(COMPACT_WIDTH).toBe(78)
+  for (let c = 48; c <= 200; c++) {
+    if (boardMetrics(c).isSideBySide !== boardMetrics(c - 1).isSideBySide) continue
+    expect(boardMetrics(c).tile).toBeGreaterThanOrEqual(boardMetrics(c - 1).tile)
+    expect(boardMetrics(c).chip).toBeGreaterThanOrEqual(boardMetrics(c - 1).chip)
+  }
+})
+
+for (const [columns, direction, tileWidth, chipWidth, layoutWidth] of [
+  [49, 'column', 5, 3, 49],
+  [56, 'column', 5, 3, 56],
+  [74, 'column', 5, 5, 74],
+  [75, 'row', 3, 3, 75],
+  [78, 'row', 3, 3, 78],
+  [82, 'row', 3, 3, 78],
+  [96, 'row', 5, 3, 85],
+  [99, 'row', 5, 5, 99],
+  [156, 'row', 5, 5, 99],
+] as const) {
+  test(`a ${columns}-column body: ${direction === 'row' ? 'side by side' : 'stacked'}, ${tileWidth}-column tiles, ${chipWidth}-column chips, ${layoutWidth} wide`, async ($, on) => {
+    const { pane } = await setupGame($, on)
+    await pane.unmount()
+    const ui = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: { bodyColumns: columns }, requestId: 'wordle' } as any)
+    await ui.input({ key: 'guess', text: 'cr', kind: 'change' } as any)
+
+    expect((await ui.find({ key: 'frame' } as any))?.props.flexDirection).toBe(direction)
+    expect((await ui.find({ key: 'divider' } as any)) !== undefined).toBe(direction === 'row')
+    // no overflow: the layout is never wider than the body, and sits centred in it
+    expect((await ui.find({ key: 'pane' } as any))?.props).toMatchObject({ width: columns, alignItems: 'center' })
+    expect((await ui.find({ key: 'layout' } as any))?.props.width).toBe(layoutWidth)
+    expect(layoutWidth).toBeLessThanOrEqual(columns)
+    // tiles: the letter centred in a tile of the tier's width, all six rows alike
+    const pad = ' '.repeat((tileWidth - 1) / 2)
+    expect(await tileAt(ui, 0, 0)).toMatchObject({ text: `${pad}C${pad}`, fill: FILL.active })
+    for (let r = 0; r < 6; r++) expect((await ui.find({ key: `t${r}-4` } as any))?.props.width).toBe(tileWidth)
+    // chips: every key, ⏎ and ⌫ included, and each row as wide as ten chips and their gaps
+    for (const key of ['kc-q', 'kc-l', 'kc-enter', 'kc-back']) expect((await ui.find({ key } as any))?.props.width).toBe(chipWidth)
+    expect((await ui.find({ key: 'krow0' } as any))?.props.width).toBe(10 * (chipWidth + 1) - 1)
+    // still one row per tile row, so the side-by-side pane stays 12 rows tall
+    expect((await ui.find({ key: 'board' } as any))?.children).toHaveLength(6)
+  })
+}
+
+test('/wordle opens with no size request: the dock keeps its share, and inline keeps its room free to grow', async ($, on) => {
+  mock.store(on)
+  const opened: any[] = []
+  on('ui.open', async (_$, e) => {
+    opened.push(e)
+
+    return { value: { isPlaced: true } } as any
+  })
+  await $.command.run({ command: 'wordle', args: '', origin: { kind: 'composer' } } as any)
+  expect(opened.at(-1)).toMatchObject({ id: 'wordle' })
+  expect(opened.at(-1).columns).toBeUndefined()
+  expect(opened.at(-1).rows).toBeUndefined()
+})
+
+for (const [columns, isAsked] of [
+  [49, true], // the dock's share at 120 columns: too narrow to sit side by side
+  [71, true],
+  [75, false],
+  [89, false], // the share at 200 columns: a request would only narrow it
+] as const) {
+  test(`a ${columns}-column dock is ${isAsked ? 'asked once for' : 'never asked to change to'} ${COMPACT_WIDTH} columns`, async ($, on) => {
+    const opened: any[] = []
+    const { pane, clock } = await setupGame($, on, {
+      prepare: (o: any) =>
+        o('ui.open', async (_$: any, e: any) => {
+          opened.push(e)
+
+          return { value: { isPlaced: true } }
+        }),
+    })
+    await pane.unmount()
+    const ui = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: { bodyColumns: columns, placement: 'dock', scroll: { offset: 0, bodyRows: 32 } }, requestId: 'wordle' } as any)
+    await clock.settle()
+    await ui.input({ key: 'guess', text: 'c', kind: 'change' } as any) // another draw at the same width
+    await clock.settle()
+    expect(opened.filter(e => e.columns !== undefined)).toEqual(isAsked ? [expect.objectContaining({ id: 'wordle', columns: COMPACT_WIDTH })] : [])
+  })
+}
+
+test('compact: on a practice day with DATE… open the footer still fits one row, at 75 and 78 columns', async ($, on) => {
+  const { pane, clock } = await setupGame($, on)
+  await goTo(pane, clock, '2026-10-01') // a practice stage: ▶ TODAY shows
+  await pane.unmount()
+  for (const columns of [75, 78]) {
+    const ui = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: { bodyColumns: columns }, requestId: 'wordle' } as any)
+    await ui.press({ key: 'date-entry' } as any)
+    expect(await ui.find({ key: 'play-today' } as any)).toBeDefined()
+    expect((await ui.find({ key: 'date-entry' } as any))?.props.label).toBe('▴ DATE…')
+    const footer = await ui.find({ key: 'footer' } as any)
+    expect(footer?.props.flexWrap).toBe('nowrap')
+    const hint = flat(await ui.find({ key: 'hint' } as any)).replace(/ /g, '').length // its words, less spaces
+    const right = await ui.find({ key: 'footer-right' } as any)
+    // the hint (47 drawn), its gap, the three buttons and their gaps, and the margin left
+    const used = 47 + 2 + '▶ TODAY'.length + 3 + '▴ DATE…'.length + 3 + '▾ MORE'.length + right?.props.paddingRight
+    expect(hint).toBeGreaterThan(0)
+    expect(used).toBeLessThanOrEqual(columns)
+    expect(right?.props.paddingRight).toBe(columns === 75 ? 0 : 3)
+    await ui.press({ key: 'date-entry' } as any) // close it again: atoms outlive the mount
+    await ui.unmount()
+  }
+})
+
+// ---- height: the pane opens compact, and stacks (board on top) once the room grows ----
+
+/** Pane props for a body `columns` wide with `bodyRows` of room (unknown when undefined). */
+const sized = (columns: number, bodyRows?: number, placement = 'inline') => ({
+  bodyColumns: columns,
+  placement,
+  ...(bodyRows === undefined ? {} : { scroll: { offset: 0, bodyRows } }),
+})
+const mountSized = ($: any, columns: number, bodyRows?: number, placement = 'inline') =>
+  $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: sized(columns, bodyRows, placement), requestId: 'wordle' } as any)
+const modeOf = async (ui: any) => ((await ui.find({ key: 'frame' } as any))?.props.flexDirection === 'row' ? 'side by side' : 'stacked')
+/** Redraws `ui` at a new size, then lets the recorded mode land. */
+const resizeTo = async (ui: any, clock: any, columns: number, bodyRows: number, placement = 'inline') => {
+  await ui.redraw(sized(columns, bodyRows, placement) as any)
+  await clock.settle()
+
+  return modeOf(ui)
+}
+
+test('STACK_AT comes from the stacked layout\'s measured height plus 2, at every width', () => {
+  // 78 columns: header 1, frame borders 2, board 8 (6 rows and their padding), controls 7, and a
+  // footer of 2 (stacked, at its widest, ▶ TODAY and ▴ DATE… showing, it wraps under 81 columns)
+  expect(stackedRows(78)).toBe(1 + 2 + 8 + 7 + 2)
+  expect(stackAt(78)).toBe(22)
+  expect(stackedRows(96)).toBe(19) // inline at 100: the footer fits on one row
+  expect(stackAt(96)).toBe(21)
+  expect(SIDE_BY_SIDE_ROWS).toBe(12)
+  for (let c = 47; c <= 200; c++) expect(stackAt(c)).toBe(stackedRows(c) + 2)
+  expect(STACK_GAP).toBe(2)
+})
+
+for (const bodyRows of [undefined, 11, 12, 22, 30, 42]) {
+  test(`out of the box: a 78-column pane opening with ${bodyRows ?? 'unknown'} rows draws the compact layout`, async ($, on) => {
+    const { pane, clock } = await setupGame($, on)
+    await pane.unmount()
+    const ui = await mountSized($, 78, bodyRows)
+    expect(await modeOf(ui)).toBe('side by side')
+    await clock.settle() // the rows it opened with are recorded, and nothing changes
+    await ui.input({ key: 'guess', text: 'c', kind: 'change' } as any)
+    expect(await modeOf(ui)).toBe('side by side')
+  })
+}
+
+for (const [bodyRows, mode] of [
+  [11, 'side by side'],
+  [19, 'side by side'],
+  [21, 'side by side'],
+  [22, 'stacked'], // STACK_AT at 78 columns
+  [30, 'stacked'],
+] as const) {
+  test(`opened with 11 rows, a 78-column pane grown to ${bodyRows} rows draws ${mode}`, async ($, on) => {
+    expect(isStackedLayout(78, bodyRows, false, 11)).toBe(mode === 'stacked')
+    const { pane, clock } = await setupGame($, on)
+    await pane.unmount()
+    const ui = await mountSized($, 78, 11)
+    await clock.settle()
+    expect(await resizeTo(ui, clock, 78, bodyRows)).toBe(mode)
+    // stacked, the board and controls take the full body with the widest cells that fit
+    if (mode === 'stacked') {
+      expect((await ui.find({ key: 'layout' } as any))?.props.width).toBe(78)
+      expect((await ui.find({ key: 't0-0' } as any))?.props.width).toBe(5)
+      expect((await ui.find({ key: 'kc-q' } as any))?.props.width).toBe(5)
+    }
+  })
+}
+
+test('switch-back gap: grown to 22 rows it stacks, stays stacked at 21 and 20, goes side by side at 19, and stacks again only at 22', async ($, on) => {
+  const stateWrites: string[] = []
+  const { pane, clock } = await setupGame($, on, {
+    prepare: (o: any) => o('state.set', async (_$: any, e: any, next: any) => (stateWrites.push(JSON.stringify(e)), next(e))),
+  })
+  await pane.unmount()
+  const ui = await mountSized($, 78, 12)
+  await clock.settle()
+  expect(await modeOf(ui)).toBe('side by side')
+  expect(await resizeTo(ui, clock, 78, 22)).toBe('stacked')
+  expect(await resizeTo(ui, clock, 78, 21)).toBe('stacked')
+  expect(await resizeTo(ui, clock, 78, 20)).toBe('stacked')
+  expect(await resizeTo(ui, clock, 78, 19)).toBe('side by side')
+  expect(await resizeTo(ui, clock, 78, 21)).toBe('side by side') // back up: the gap holds this way too
+  expect(await resizeTo(ui, clock, 78, 22)).toBe('stacked')
+  // the mode lives in the session's pane state (the isStacked atom), one write per switch
+  expect(stateWrites.filter(w => w.includes('isStacked')).map(w => JSON.parse(w).value)).toEqual([true, false, true])
+})
+
+test('docked with room to spare it still opens compact, and stacks once the terminal grows taller', async ($, on) => {
+  const { pane, clock } = await setupGame($, on)
+  await pane.unmount()
+  const ui = await mountSized($, 78, 32, 'dock')
+  await clock.settle()
+  expect(await modeOf(ui)).toBe('side by side') // 32 rows at open: plenty, but it opened with them
+  expect(await resizeTo(ui, clock, 78, 33, 'dock')).toBe('stacked') // grown past them, and past STACK_AT
+  expect(await resizeTo(ui, clock, 78, 31, 'dock')).toBe('stacked') // the gap
+  expect(await resizeTo(ui, clock, 78, 30, 'dock')).toBe('side by side')
+})
+
+test('a dock too narrow at first stacks for the width, and goes compact once it is wide enough', async ($, on) => {
+  const { pane, clock } = await setupGame($, on, { prepare: (o: any) => o('ui.open', async () => ({ value: { isPlaced: true } })) })
+  await pane.unmount()
+  const ui = await mountSized($, 49, 32, 'dock')
+  await clock.settle()
+  expect(await modeOf(ui)).toBe('stacked') // 49 columns: no room to sit side by side
+  // the dock grants the 78 columns asked for: no height change, so the compact layout
+  expect(await resizeTo(ui, clock, 78, 32, 'dock')).toBe('side by side')
+})
+
+test('isStackedLayout: compact until the rows it opened with are known and outgrown; the gap only for a pane that was stacked', () => {
+  expect(isStackedLayout(78, 30, false, null)).toBe(false) // the first draw: compact
+  expect(isStackedLayout(78, 30, false, 30)).toBe(false) // as tall as it opened
+  expect(isStackedLayout(78, 31, false, 30)).toBe(true) // grown, and past STACK_AT (22)
+  expect(isStackedLayout(78, 21, false, 11)).toBe(false)
+  expect(isStackedLayout(78, 22, false, 11)).toBe(true)
+  expect(isStackedLayout(78, 21, true, 11)).toBe(true)
+  expect(isStackedLayout(78, 20, true, 11)).toBe(true)
+  expect(isStackedLayout(78, 19, true, 11)).toBe(false)
+  expect(isStackedLayout(78, undefined, true, 11)).toBe(false) // unknown rows: the compact default
+  expect(isStackedLayout(60, undefined)).toBe(true) // too narrow for side by side, whatever the rows
+  expect(isStackedLayout(60, 11, false, 11)).toBe(true)
+  expect(isStackedLayout(96, 21, false, 11)).toBe(true) // STACK_AT is 21 at 96 columns
+  expect(isStackedLayout(96, 20, false, 11)).toBe(false)
+})
+
+test('stacked is never wider than the body, and takes the widest tiles and chips that fit', () => {
+  for (let columns = 47; columns <= 200; columns++) {
+    const m = boardMetrics(columns, true)
+    expect(m.isSideBySide).toBe(false)
+    expect(m.width).toBe(columns)
+    expect(2 + m.board).toBeLessThanOrEqual(columns)
+    expect(2 + m.controls).toBeLessThanOrEqual(columns)
+    // nothing wider would have fit: the next chip or tile size up overflows
+    if (m.chip === 3) expect(2 + 10 * 6 - 1 + 2 * m.pad).toBeGreaterThan(columns)
+    if (m.tile === 3) expect(2 + 5 * 5 + 4 + 2 * m.pad).toBeGreaterThan(columns)
+  }
+})
+
+for (const columns of [75, 96, 140]) {
+  test(`a stacked ${columns}-column body draws no row wider than the body`, async ($, on) => {
+    const { pane, clock } = await setupGame($, on)
+    await pane.unmount()
+    const ui = await mountSized($, columns, 12)
+    await clock.settle()
+    expect(await resizeTo(ui, clock, columns, 40)).toBe('stacked')
+    const width = async (key: string) => (await ui.find({ key } as any))?.props.width
+    expect(await width('layout')).toBeLessThanOrEqual(columns)
+    const m = boardMetrics(columns, true)
+    expect(2 + (await width('board'))).toBeLessThanOrEqual(columns)
+    expect(2 + 2 * m.pad + (await width('krow0'))).toBeLessThanOrEqual(columns)
+  })
+}
+
+// ---- a short pane: the compact layout gives way so the footer bar stays in view ----
+
+test('compactFit: the fullest compact layout that fits the rows, 12 down to 7', () => {
+  expect([undefined, 30, 12, 11, 10, 9, 8, 7].map(rows => fitRows(compactFit(rows)))).toEqual([12, 12, 12, 11, 10, 9, 8, 7])
+  expect(fitRows(compactFit(6))).toBe(7) // the board alone is 6 rows: 7 is the least that holds the bar too
+})
+
+for (const [bodyRows, hasHeader, hasBorder, boardPad, hasGap] of [
+  [12, true, true, 1, true],
+  [11, true, true, 0, true], // the blank rows around the board go first
+  [10, true, true, 0, false], // then the one above the stats row
+  [9, false, true, 0, false], // then the header (the stats row still says the STAGE)
+  [8, true, false, 0, false], // then the frame's border, the header back
+  [7, false, false, 0, false],
+] as const) {
+  test(`a compact pane with ${bodyRows} rows: header ${hasHeader ? 'on' : 'off'}, border ${hasBorder ? 'on' : 'off'}, and the footer bar always there`, async ($, on) => {
+    const { pane } = await setupGame($, on)
+    await pane.unmount()
+    const ui = await mountSized($, 78, bodyRows)
+    expect(await modeOf(ui)).toBe('side by side')
+    expect((await ui.find({ key: 'header' } as any)) !== undefined).toBe(hasHeader)
+    expect((await ui.find({ key: 'frame' } as any))?.props.borderStyle).toBe(hasBorder ? 'round' : undefined)
+    expect((await ui.find({ key: 'board' } as any))?.props.paddingY).toBe(boardPad)
+    expect((await ui.find({ key: 'board' } as any))?.children).toHaveLength(6) // every tile row, always
+    expect((await ui.find({ key: 'controls' } as any))?.children).toHaveLength(hasGap ? 5 : 4)
+    expect((await ui.find({ key: 'keyboard' } as any))?.children).toHaveLength(3)
+    // the divider is as tall as the frame's inside
+    expect((await ui.find({ key: 'divider' } as any))?.children).toHaveLength(Math.max(6 + 2 * boardPad, hasGap ? 7 : 6))
+    for (const key of ['footer', 'date-entry', 'stats-toggle', 'stage-prev']) expect(await ui.find({ key } as any)).toBeDefined()
+    // and the rows add up to no more than the room
+    const rows = (hasHeader ? 1 : 0) + (hasBorder ? 2 : 0) + Math.max(6 + 2 * boardPad, hasGap ? 7 : 6) + 1
+    expect(rows).toBeLessThanOrEqual(bodyRows)
+  })
+}

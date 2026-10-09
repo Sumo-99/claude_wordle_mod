@@ -57,3 +57,34 @@ the `⏎ ENTER` / `⌫ DELETE` hint buttons), step days with `◀ ▶`, open `�
 confirm the celebration hands back to the compact board. Repeat in the
 Desktop app's Code tab and at about 60 columns (the controls stack). The full
 list is in `VERIFY.md` under "Stage 09".
+
+## Addendum: width tiers and height-aware stacking (experiment)
+Ported from the `width-experiment` prototype, then extended by height. All in
+`hooks/lib/board-view.js` (pure) with the mode kept in `register.js`:
+- `boardMetrics(columns, isStacked)`: side by side at the widest tier that fits
+  (75 / 85 / 99 columns: 3- or 5-column tiles and chips), centred; the compact
+  tier is `min(columns, COMPACT_WIDTH)` (78) wide, its controls taking the extra;
+  stacked, the full body width with the widest cells that fit. Side by side the
+  footer never wraps (its right margin shrinks), so compact is always 12 rows.
+- No size request on open (a fixed `columns` narrowed wide docks; `rows` caps
+  the inline room so it can't grow). A dock narrower than 75 is asked once,
+  from its first draw, for 78 columns.
+- `isStackedLayout(columns, bodyRows, wasStacked, openRows)`: the pane always
+  opens compact (`openRows`, the body rows at its first draw, recorded in state
+  and reset by each open). It stacks only once the room has grown:
+  `bodyRows >= max(stackAt(columns), openRows + 1)`; once stacked, it stays
+  until `STACK_GAP` (2) rows below that. Too narrow for side by side is always
+  stacked, and that stacking doesn't count toward the gap.
+- `stackAt(columns) = stackedRows(columns) + 2`, where `stackedRows` adds the
+  parts the tree draws (header, frame borders, board, controls, footer) and lets
+  the header and footer take a second row when their widest content (a practice
+  stage, `▶ TODAY`, `▴ DATE…`) doesn't fit: 20 rows at 75–84 columns (STACK_AT
+  22), 19 from 85 (STACK_AT 21). Checked live: 19 and 20 rows on screen.
+- A draw can't write `$.state`, so the render hook draws the mode it computes
+  and records it in the `isStacked` atom with `$.clock.after(0)`; the next draw
+  reads it back for the gap. Session state, never the store.
+- A short pane: inline the room is about a third of the terminal (8 rows at 30,
+  11 at 40), so side by side the layout fits `bodyRows` with `compactFit`: 12,
+  then 11 (no blank rows around the board), 10 (no gap above stats), 9 (no
+  header), 8 (header, no frame border), 7 (neither). The footer bar is always
+  drawn. A 24-row terminal gives 6 rows, less than the board: it scrolls.
