@@ -3,5 +3,6 @@
   "version": "0.1.0",
   "description": "Play a Wordle-style game in a pane while Claude generates a response.",
   "author": { "name": "Sumanth Ramesh" },
+  "license": "MIT",
   "types": "./types/index.d.ts"
 }

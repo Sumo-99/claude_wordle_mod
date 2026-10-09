@@ -1,7 +1,35 @@
 import { atom, read, update } from 'claude-code'
 
-import { FALLBACK_NOTE, renderBoard } from './lib/board-view.js'
+import { boardMetrics, COMPACT_WIDTH, FALLBACK_NOTE, isStackedLayout, renderBoard, SIDE_BY_SIDE_MIN } from './lib/board-view.js'
+import { boardKey, checkArchiveDate } from './lib/archive.js'
+import { hiScore, stepStage } from './lib/arcade.js'
+import { FRAME_MS as SPLASH_FRAME_MS, splashFrames } from './lib/splash.js'
+import {
+  ALL_PLAYED_MESSAGE,
+  checkPickerDate,
+  clearPlayed,
+  loadPlayed,
+  markPlayed,
+  PLAYED_KEY,
+  RANDOM_KEY,
+  randomDate,
+  shownDate,
+  stepPicker,
+} from './lib/picker.js'
+import { FRAME_MS, TOTAL_FRAMES } from './lib/fireworks.js'
+import {
+  AUTO_OPEN_KEY,
+  describeAutoOpen,
+  describeReduceMotion,
+  describeResetAsk,
+  describeResetDone,
+  historyKeys,
+  parseWordleArgs,
+  REDUCE_MOTION_KEY,
+  USAGE,
+} from './lib/lifecycle.js'
 import { createGame, submitGuess, WORD_LENGTH } from './lib/game-engine.js'
+import { DEFAULT_STATS, loadStats, recordCompletion, STATS_KEY } from './lib/stats.js'
 import { isValidGuess, resolveWord } from './lib/word-source.js'
 
 const PANE = 'wordle'
@@ -9,6 +37,25 @@ const PANE = 'wordle'
 const game = atom({ plugin: 'wordle-mod', key: 'game' }, null)
 const draft = atom({ plugin: 'wordle-mod', key: 'draft' }, '')
 const puzzle = atom({ plugin: 'wordle-mod', key: 'puzzle' }, null)
+const stats = atom({ plugin: 'wordle-mod', key: 'stats' }, DEFAULT_STATS)
+const isStatsOpen = atom({ plugin: 'wordle-mod', key: 'isStatsOpen' }, false)
+const isConfirmingClear = atom({ plugin: 'wordle-mod', key: 'isConfirmingClear' }, false)
+const isDateEntryOpen = atom({ plugin: 'wordle-mod', key: 'isDateEntryOpen' }, false)
+const celebrationFrame = atom({ plugin: 'wordle-mod', key: 'celebrationFrame' }, -1)
+const isMotionReduced = atom({ plugin: 'wordle-mod', key: 'isMotionReduced' }, false)
+const isStacked = atom({ plugin: 'wordle-mod', key: 'isStacked' }, false)
+const openRows = atom({ plugin: 'wordle-mod', key: 'openRows' }, null)
+// which screen the pane shows: the game board, or the Pick a game screen
+const mode = atom({ plugin: 'wordle-mod', key: 'mode' }, 'game')
+const pickerDate = atom({ plugin: 'wordle-mod', key: 'pickerDate' }, null)
+const pickerDir = atom({ plugin: 'wordle-mod', key: 'pickerDir' }, -1)
+const playedToday = atom({ plugin: 'wordle-mod', key: 'playedToday' }, { day: null, dates: [] })
+const todayGame = atom({ plugin: 'wordle-mod', key: 'todayGame' }, null)
+const tick = atom({ plugin: 'wordle-mod', key: 'tick' }, 0)
+// the opening splash while it plays: `{ id, frame, opts }` (see lib/splash.js), else null
+const splash = atom({ plugin: 'wordle-mod', key: 'splash' }, null)
+
+const CLEAR_CONFIRM_MS = 5000
 
 // A plugin has one hooks module and the engine's `$` can't cross an import, so
 // everything that touches `$` lives here; lib/ is pure and takes closures.
@@ -28,19 +75,196 @@ const today = async $ => {
 
 let isLoading = false
 
-/** Resolves today's word and starts a game. Runs from a timer, never from a draw. */
-const startToday = async $ => {
+// Docked, the dock's share can be too narrow to sit side by side (49 columns at 120),
+// so the first draw asks it once for the compact layout's columns; a wider share is
+// left alone (a fixed request would narrow it). A request, not a grant: a width the
+// person drags wins. No `rows`: inline a request caps the room, so the pane couldn't
+// grow when the terminal does, and it can't buy rows the layout hasn't got to spare.
+let hasAskedWidth = false
+
+/**
+ * Opens the pane afresh: compact first, whatever the room, until the room grows.
+ * `splash` arms the opening splash ('full' from /wordle, 'short' from auto-open);
+ * the pane's first draw starts it.
+ */
+const openPane = async ($, options, { splash: version = null } = {}) => {
+  hasAskedWidth = false
+  await update($, openRows, () => null)
+  await update($, isStacked, () => false)
   try {
-    const date = await today($)
-    const { solution, source } = await resolveWord(makeIo($), date)
-    await update($, game, () => createGame(solution))
+    if (version) await armSplash($, version === 'short')
+  } catch {
+    // no splash is better than no pane: open straight onto the game
+  }
+  await $.ui.open({ id: PANE, title: 'Wordle', closeOnEscape: true, ...options })
+}
+
+const isPaneOpen = async $ => {
+  try {
+    return (await $.ui.panes()).some(pane => pane.id === PANE)
+  } catch {
+    return false
+  }
+}
+
+// ---- the opening splash (lib/splash.js) ----
+
+// The running frame timer; STARTING while the first draw's start is queued. The module's
+// own, so after a reload the next draw finds none and carries on from the saved frame.
+const STARTING = { cancel: () => {} }
+let splashTimer = null
+let nextSplashId = 1
+let endedSplashId = 0
+
+const stopSplashTimer = () => {
+  splashTimer?.cancel()
+  splashTimer = null
+}
+
+/**
+ * Readies a splash for the pane about to open, frame 0. Reads, never writes: the
+ * HI-SCORE, whether today is finished (row 9's line), and the reduced-motion setting.
+ */
+const armSplash = async ($, isAutoOpen) => {
+  const io = makeIo($)
+  const now = await today($)
+  const saved = await io.store.get(boardKey(now))
+  const opts = {
+    date: now,
+    hiScore: hiScore(await loadStats(io)),
+    isTodayDone: Boolean(saved?.status && saved.status !== 'playing'),
+    reducedMotion: (await $.store.get(REDUCE_MOTION_KEY)) === true,
+    isAutoOpen,
+  }
+  stopSplashTimer()
+  const id = nextSplashId++
+  await update($, splash, () => ({ id, frame: 0, opts }))
+}
+
+/** Steps the armed splash every 100 ms from its saved frame; at the last frame it hands off. */
+const runSplash = async $ => {
+  if (splashTimer && splashTimer !== STARTING) return // another queued start got there first
+  const current = await read($, splash)
+  if (!current) {
+    splashTimer = null
+
+    return
+  }
+  if (splashTimer && splashTimer !== STARTING) return
+  const timer = $.clock.every(SPLASH_FRAME_MS, async () => {
+    const next = await update($, splash, s => (s?.id === current.id ? { ...s, frame: s.frame + 1 } : s))
+    if (next?.id !== current.id) return timer.cancel() // ended, or a newer open replaced it
+    if (next.frame >= splashFrames(next.opts)) await endSplash($)
+  })
+  splashTimer = timer
+  // a /wordle open holds the keyboard: put it on the key catcher, so any key skips.
+  // Auto-open never takes the keys from the person's next prompt.
+  if (!current.opts.isAutoOpen) {
+    try {
+      await $.ui.focus({ requestId: PANE, key: 'splash-key' })
+    } catch {
+      // a click or `1` still skips
+    }
+  }
+}
+
+/**
+ * Ends the splash: its last frame, a skip (any key, a click, `1`) or the pane
+ * closing. Then, unless the pane closed, the hand-off: today's game, or the
+ * picker when today is finished. Runs once per splash, however many skips race.
+ */
+const endSplash = async ($, { handOff = true } = {}) => {
+  const current = await read($, splash)
+  if (!current || current.id === endedSplashId) return
+  endedSplashId = current.id
+  stopSplashTimer()
+  await update($, splash, () => null)
+  if (!handOff) return
+  await update($, isDateEntryOpen, () => false)
+  await update($, isStatsOpen, () => false)
+  await startDate($, await today($))
+  const g = await read($, game)
+  if (g && g.status !== 'playing') return goPicker($)
+  await leavePicker($)
+  await focusGuess($)
+}
+
+/**
+ * Makes `date` the active puzzle: its word, and the saved board if that date was
+ * started before (so switching back resumes it). Runs from a timer or a handler,
+ * never from a draw. `fresh` (the picker opening a past date) starts a new board in
+ * place of a saved one that is finished; an unfinished one is resumed either way.
+ */
+const startDate = async ($, date, { fresh = false } = {}) => {
+  try {
+    const io = makeIo($)
+    const { solution, source } = await resolveWord(io, date)
+    const saved = await io.store.get(boardKey(date))
+    // If this date was started on an offline word and the live word has since come
+    // back different, finish the game already in progress on the word it began with
+    // (still marked offline) rather than throwing the player's guesses away.
+    const isReplay = fresh && saved?.status && saved.status !== 'playing'
+    const keepSaved = saved && !isReplay && (saved.answer === solution || saved.guesses.length > 0)
+    const resumed = keepSaved ? saved : createGame(solution)
+    if (isReplay) await io.store.set(boardKey(date), resumed)
+    const shownSource = resumed.answer === solution ? source : 'fallback'
+    const isToday = date === (await today($))
+    const savedStats = await loadStats(io)
+    await update($, game, () => resumed)
     await update($, draft, () => '')
-    await update($, puzzle, () => ({ date, source }))
+    await update($, puzzle, () => ({ date, source: shownSource, isToday }))
+    await update($, stats, () => savedStats)
   } catch {
     $.ui.toast('Could not start a puzzle.')
   } finally {
     isLoading = false
   }
+}
+
+/**
+ * Gives the keyboard back to the Guess field. A click on an on-screen key leaves
+ * the focus ring on that key, and then Enter would press the key again (the
+ * Backspace key, say, deleting a letter instead of submitting) and a physical
+ * Backspace would do nothing. With the ring back on the field, Enter submits and
+ * Backspace edits it, whichever way the last letter went in. A refusal (the field
+ * is gone because the game is over, or the pane doesn't hold the keys) is fine.
+ */
+const focusGuess = async $ => {
+  try {
+    await $.ui.focus({ requestId: PANE, key: 'guess' })
+  } catch {
+    // focus is a convenience; never let it get in the way of a press
+  }
+}
+
+// While true the Guess field is drawn empty. See resyncField.
+const isFieldBlanked = atom({ plugin: 'wordle-mod', key: 'isFieldBlanked' }, false)
+
+const RESYNC_GAP_MS = 60
+
+/**
+ * Makes the Guess field show the draft again. Found from the live diagnostic log:
+ * the field empties its own text on Enter, and it takes the `value` we draw it with
+ * only when that value CHANGES between two drawings. After a rejected guess the
+ * draft is unchanged, so the value was too, and the field stayed empty while the
+ * draft lived on unseen; the next keystroke then replaced it ("type from scratch").
+ * Drawing it empty and then with the draft is a change each time, so it takes both.
+ * Edits that arrive during the empty moment come from a blanked field and are
+ * dropped (see setDraft).
+ */
+const resyncField = async $ => {
+  await update($, isFieldBlanked, () => true)
+  // on a timer, not awaited: the handler that rejected the guess is not held up for it
+  $.clock.after(RESYNC_GAP_MS, () => update($, isFieldBlanked, () => false))
+}
+
+/**
+ * A guess that can't be played (too short, or not a word). As in the real Wordle
+ * the letters STAY and the guess costs nothing: the player just edits the word.
+ */
+const rejectGuess = async ($, message) => {
+  $.ui.toast(message)
+  await resyncField($)
 }
 
 const typeLetter = async ($, letter) => {
@@ -58,7 +282,11 @@ const setDraft = async ($, text) => {
   const g = await read($, game)
   if (!g || g.status !== 'playing') return
   const letters = String(text).toLowerCase().replace(/[^a-z]/g, '').slice(0, WORD_LENGTH)
+  if (await read($, isFieldBlanked)) return // an edit of the field while it is being refilled
   await update($, draft, () => letters)
+  // the draft is trimmed to letters, five at most; if that changed what was typed (a sixth
+  // letter, a digit), the field must be told, or it keeps showing the longer text
+  if (letters !== String(text).toLowerCase()) await resyncField($)
 }
 
 const REASONS = { length: 'Not enough letters', invalid: 'Not in word list' }
@@ -67,15 +295,255 @@ const enter = async $ => {
   const g = await read($, game)
   if (!g || g.status !== 'playing') return
   const word = await read($, draft)
-  if (word.length < WORD_LENGTH) return $.ui.toast(REASONS.length)
+  if (word.length < WORD_LENGTH) return rejectGuess($, REASONS.length)
 
   const isValid = await isValidGuess(makeIo($), word)
   const out = submitGuess(g, word, () => isValid)
-  if (!out.ok) return $.ui.toast(REASONS[out.reason] ?? 'Cannot play that')
+  if (!out.ok) return rejectGuess($, REASONS[out.reason] ?? 'Cannot play that')
   await update($, game, () => out.game)
   await update($, draft, () => '')
-  if (out.game.status === 'won') $.ui.toast(`Solved in ${out.game.guesses.length}!`)
-  if (out.game.status === 'lost') $.ui.toast(`The word was ${out.game.answer.toUpperCase()}`)
+  const active = await read($, puzzle)
+  if (active) await $.store.set(boardKey(active.date), out.game)
+  // Only a finished game of today's puzzle counts; practice dates never do. The
+  // game was 'playing' before this guess, so this fires once per game, and a
+  // finished board that is merely resumed later never reaches here.
+  if (out.game.status !== 'playing' && active) {
+    const now = await today($)
+    if (active.date === now) {
+      const next = await recordCompletion(makeIo($), {
+        won: out.game.status === 'won',
+        guessCount: out.game.guesses.length,
+      })
+      await update($, stats, () => next)
+    } else {
+      // a practice game that ended: the picker leaves it out for the rest of the day
+      await markPlayed(makeIo($), now, active.date)
+    }
+  }
+  if (out.game.status === 'won') {
+    $.ui.toast(`Solved in ${out.game.guesses.length}!`)
+    await celebrate($)
+  }
+  if (out.game.status === 'lost') {
+    $.ui.toast(`The word was ${out.game.answer.toUpperCase()}`)
+    // the finished board holds the answer a moment, then the picker opens on its own
+    const date = active?.date
+    $.clock.after(LOSS_HOLD_MS, () => finishToPicker($, date))
+  }
+}
+
+/** ▶ TODAY and the date field: validate, then switch the active puzzle. */
+const pickDate = async ($, input) => {
+  if ((await read($, mode)) === 'picker') return playTyped($, input)
+  const check = checkArchiveDate(input, await today($))
+  if (!check.ok) return $.ui.toast(check.reason)
+  await update($, isDateEntryOpen, () => false)
+  await startDate($, check.date)
+}
+
+/** ◀ (dir -1) and ▶ (dir +1) beside the stage date: one day back or forward. */
+const stepToStage = async ($, dir) => {
+  const active = await read($, puzzle)
+  const now = await today($)
+  const date = stepStage(active?.date ?? now, now, dir)
+  if (date) await pickDate($, date)
+}
+
+/** DATE…: shows or hides the typed-date field, and gives it the keyboard when it opens. */
+const toggleDateEntry = async $ => {
+  const isOpen = await update($, isDateEntryOpen, v => !v)
+  if (isOpen) await update($, isStatsOpen, () => false) // one panel at a time
+  if (!isOpen) return focusGuess($)
+  try {
+    await $.ui.focus({ requestId: PANE, key: 'archive-date' })
+  } catch {
+    // the person can click into it instead
+  }
+}
+
+// ---- the Pick a game screen ----
+
+let tickTimer = null
+
+/** Reads today's saved board and the played-today set into the atoms the picker draws from. */
+const refreshPicker = async $ => {
+  const io = makeIo($)
+  const now = await today($)
+  const saved = await io.store.get(boardKey(now))
+  await update($, todayGame, () => (saved?.status && saved.status !== 'playing' ? saved : null))
+  const dates = await loadPlayed(io, now)
+  await update($, playedToday, () => ({ day: now, dates }))
+}
+
+/** Shows the picker; its clock ticks (the countdown) only while it is the screen. */
+const goPicker = async $ => {
+  await update($, isDateEntryOpen, () => false)
+  await update($, isStatsOpen, () => false)
+  await update($, pickerDate, () => null)
+  await update($, pickerDir, () => -1)
+  await update($, tick, () => 0)
+  await refreshPicker($)
+  await update($, mode, () => 'picker')
+  tickTimer?.cancel()
+  tickTimer = $.clock.every(1000, async () => {
+    if ((await read($, mode)) !== 'picker') return tickTimer?.cancel()
+    // a new day: today's board and the played-today set are another day's now
+    if ((await read($, playedToday)).day !== (await today($))) await refreshPicker($)
+    const now = await $.clock.now()
+    await update($, tick, () => now)
+  })
+  // the finished board's field is gone, so the keys would have nowhere to land: give
+  // them to RANDOM GAME, which puts the picker's 1 and 2 hotkeys in reach at once
+  try {
+    await $.ui.focus({ requestId: PANE, key: 'random' })
+  } catch {
+    // focus is a convenience; a click works too
+  }
+}
+
+// How long a lost board shows the answer before the picker opens on its own.
+const LOSS_HOLD_MS = 3000
+
+/**
+ * A game just ended (the celebration ran out, or a loss's hold is over): the picker opens
+ * on its own. Only if that same finished game is still on screen; one the person already
+ * left (CONTINUE, another date) is not pulled away from.
+ */
+const finishToPicker = async ($, date) => {
+  if ((await read($, mode)) !== 'game') return
+  const g = await read($, game)
+  if (!g || g.status === 'playing' || (await read($, puzzle))?.date !== date) return
+  await goPicker($)
+}
+
+const leavePicker = async $ => {
+  tickTimer?.cancel()
+  tickTimer = null
+  await update($, mode, () => 'game')
+}
+
+/** What the pane opens on: today's puzzle, or the picker once it is finished. */
+const openToday = async $ => {
+  await update($, isDateEntryOpen, () => false)
+  await startDate($, await today($))
+  await leavePicker($)
+}
+
+/** After a puzzle loads on its own (the pane opening): a finished daily goes to the picker. */
+const routeOpening = async $ => {
+  const g = await read($, game)
+  if (g && g.status !== 'playing') await goPicker($)
+}
+
+/** Opens a pool date from the picker: resumes an unfinished board, replaces a finished one. */
+const openPracticeDate = async ($, date) => {
+  await update($, isDateEntryOpen, () => false)
+  await startDate($, date, { fresh: true })
+  await leavePicker($)
+}
+
+/** Every date is played: say so and start the set over. */
+const allPlayed = async $ => {
+  $.ui.toast(ALL_PLAYED_MESSAGE)
+  await clearPlayed(makeIo($), await today($))
+  await refreshPicker($)
+}
+
+const playRandom = async $ => {
+  const now = await today($)
+  const fixed = await $.store.get(RANDOM_KEY)
+  const date = randomDate(now, await loadPlayed(makeIo($), now), typeof fixed === 'number' ? () => fixed : undefined)
+  if (!date) return allPlayed($)
+  await openPracticeDate($, date)
+}
+
+const stepPickerDate = async ($, dir) => {
+  const now = await today($)
+  const played = await loadPlayed(makeIo($), now)
+  const next = stepPicker(shownDate(await read($, pickerDate), now, played), now, played, dir)
+  if (!next) return
+  await update($, pickerDate, () => next)
+  await update($, pickerDir, () => dir)
+}
+
+const playShown = async $ => {
+  const now = await today($)
+  const played = await loadPlayed(makeIo($), now)
+  const date = shownDate(await read($, pickerDate), now, played)
+  if (played.includes(date)) return allPlayed($)
+  await openPracticeDate($, date)
+}
+
+/** The typed date on the picker: a rejection toasts and leaves the field open. */
+const playTyped = async ($, input) => {
+  const now = await today($)
+  const check = checkPickerDate(input, now, await loadPlayed(makeIo($), now))
+  if (!check.ok) return $.ui.toast(check.reason)
+  await openPracticeDate($, check.date)
+}
+
+/** What the picker draws: the played-today set counts only for today, whatever day the record is from. */
+const pickerView = async $ => {
+  const now = await today($)
+  const record = await read($, playedToday)
+  const played = record.day === now ? record.dates : []
+
+  return {
+    todayGame: await read($, todayGame),
+    played,
+    date: shownDate(await read($, pickerDate), now, played),
+    dir: await read($, pickerDir),
+    now: (await read($, tick)) || (await $.clock.now()),
+  }
+}
+
+let celebrationTimer = null
+
+/**
+ * Plays the win celebration: a timer steps the frame until the animation ends, then
+ * the picker opens. It always plays in full: there is no skip. Reads the
+ * reduced-motion setting once, as it starts.
+ */
+const celebrate = async $ => {
+  if ((await read($, celebrationFrame)) >= 0) return
+  const isReduced = (await $.store.get(REDUCE_MOTION_KEY)) === true
+  await update($, isMotionReduced, () => isReduced)
+  await update($, celebrationFrame, () => 0)
+  const date = (await read($, puzzle))?.date
+  celebrationTimer?.cancel()
+  const timer = $.clock.every(FRAME_MS, async () => {
+    const frame = await update($, celebrationFrame, n => (n < 0 ? n : n + 1))
+    if (frame < 0 || frame >= TOTAL_FRAMES) {
+      timer.cancel()
+      await update($, celebrationFrame, () => -1)
+      await finishToPicker($, date)
+    }
+  })
+  celebrationTimer = timer
+}
+
+/**
+ * Wipes the saved stats. Two presses within a few seconds: the first arms the
+ * button, the second clears. Saved boards are kept, so a finished puzzle stays
+ * finished; only streaks, win % and the distribution reset.
+ */
+const clearStats = async $ => {
+  if (!(await read($, isConfirmingClear))) {
+    await update($, isConfirmingClear, () => true)
+    $.clock.after(CLEAR_CONFIRM_MS, () => update($, isConfirmingClear, () => false))
+
+    return
+  }
+  await $.store.set(STATS_KEY, DEFAULT_STATS)
+  await update($, stats, () => DEFAULT_STATS)
+  await update($, isConfirmingClear, () => false)
+  $.ui.toast('Stats cleared.')
+}
+
+/** ▾ MORE / ▴ LESS beside the stats row: the details (played, distribution, Clear stats). */
+const toggleStats = async $ => {
+  const isOpen = await update($, isStatsOpen, v => !v)
+  if (isOpen) await update($, isDateEntryOpen, () => false) // one panel at a time
 }
 
 /** @type {import('claude-code').Register} */
@@ -89,28 +557,166 @@ export const register = on => {
     return next(e)
   })
 
-  on('command.run', { command: 'wordle' }, async $ => {
-    await $.ui.open({ id: PANE, title: 'Wordle', focus: true, closeOnEscape: true })
+  on('command.run', { command: 'wordle' }, async ($, e) => {
+    const cmd = parseWordleArgs(e.args)
+    if (cmd.kind === 'usage') return { text: USAGE }
+    if (cmd.kind === 'show-auto-open') return { text: describeAutoOpen((await $.store.get(AUTO_OPEN_KEY)) === true) }
+    if (cmd.kind === 'set-auto-open') {
+      await $.store.set(AUTO_OPEN_KEY, cmd.value)
+
+      return { text: describeAutoOpen(cmd.value) }
+    }
+    if (cmd.kind === 'show-reduce-motion') return { text: describeReduceMotion((await $.store.get(REDUCE_MOTION_KEY)) === true) }
+    if (cmd.kind === 'set-reduce-motion') {
+      await $.store.set(REDUCE_MOTION_KEY, cmd.value)
+
+      return { text: describeReduceMotion(cmd.value) }
+    }
+    if (cmd.kind === 'reset-history-ask' || cmd.kind === 'reset-history') {
+      const doomed = historyKeys(await $.store.keys())
+      const games = doomed.filter(key => key.startsWith('board:')).length
+      if (cmd.kind === 'reset-history-ask') return { text: describeResetAsk(games) }
+
+      for (const key of doomed) await $.store.delete(key)
+      // the open game is history too: drop it so a pane that is showing it starts today afresh
+      await update($, game, () => null)
+      await update($, draft, () => '')
+      await update($, puzzle, () => null)
+      await $.store.delete(PLAYED_KEY)
+      await leavePicker($)
+
+      return { text: describeResetDone(games) }
+    }
+    // every /wordle plays the splash, even onto a pane that is already open
+    await openPane($, { focus: true }, { splash: 'full' })
 
     return { text: 'Wordle pane opened.' }
   })
 
-  on('ui.render', { component: 'Pane' }, async ($, e, next) => {
-    if (e.requestId !== PANE) return next(e)
-    const { Box, Text, Button, Input } = $.ui.resolve(e)
-    const view = { game: await read($, game), draft: await read($, draft), puzzle: await read($, puzzle) }
-
-    if (!view.game && !isLoading) {
-      isLoading = true
-      $.clock.after(0, () => startToday($))
+  // Auto-open: only if the person turned it on. No `focus` (the mod opened it,
+  // not the person, so it must not take the keyboard from the next prompt), and
+  // there is deliberately no turn.complete hook: the pane never auto-closes.
+  // The short splash plays only when this actually opens it: a pane already up
+  // (mid-game, say) is left as it is on every later turn.
+  on('turn.start', async ($, e, next) => {
+    try {
+      if ((await $.store.get(AUTO_OPEN_KEY)) === true) {
+        await openPane($, {}, { splash: (await isPaneOpen($)) ? null : 'short' })
+      }
+    } catch {
+      // a refused open must never get in the way of Claude's turn
     }
 
-    return renderBoard({ h, Box, Text, Button, Input }, view, {
-      letter: ch => typeLetter($, ch),
-      enter: () => enter($),
-      backspace: () => backspace($),
+    return next(e)
+  })
+
+  // Closing the pane (Esc, its close mark) ends a splash that is playing, with no hand-off.
+  on('ui.close', async ($, e, next) => {
+    if (e.id === PANE) await endSplash($, { handOff: false })
+
+    return next(e)
+  }).catch(($, e, next) => next(e)) // a failure here must never keep the pane open
+
+  on('ui.render', { component: 'Pane' }, async ($, e, next) => {
+    if (e.requestId !== PANE) return next(e)
+    const { Box, Text, Button, Input, Select } = $.ui.resolve(e)
+    // The Pane's size (this build hands it over under `e.props`): the body's width sizes
+    // the board, and its rows, once known, let it stack (board on top) when there's room.
+    const columns = e.props?.bodyColumns ?? e.viewport?.columns ?? 78
+    const bodyRows = e.props?.scroll?.bodyRows
+    const wasStacked = await read($, isStacked)
+    const rowsAtOpen = await read($, openRows)
+    const stacked = isStackedLayout(columns, bodyRows, wasStacked, rowsAtOpen)
+    const view = {
+      game: await read($, game),
+      draft: await read($, draft),
+      puzzle: await read($, puzzle),
+      today: await today($),
+      stats: await read($, stats),
+      isStatsOpen: await read($, isStatsOpen),
+      isConfirmingClear: await read($, isConfirmingClear),
+      isDateEntryOpen: await read($, isDateEntryOpen),
+      celebrationFrame: await read($, celebrationFrame),
+      isMotionReduced: await read($, isMotionReduced),
+      isFieldBlanked: await read($, isFieldBlanked),
+      mode: await read($, mode),
+      picker: await pickerView($),
+      splash: await read($, splash),
+      // the win screen fills the pane: the Pane's own width and row room (this build hands
+      // them over under `e.props`), the rows capped so the red stays about the board's height.
+      screen: {
+        columns: e.props?.bodyColumns ?? e.viewport?.columns ?? 40,
+        rows: Math.min(26, e.props?.scroll?.bodyRows ?? Math.max(12, (e.viewport?.rows ?? 30) - 6)),
+      },
+      layout: { columns, rows: bodyRows, isStacked: stacked },
+    }
+
+    // A draw can't write state, so the mode just drawn is recorded right after it; the
+    // next draw reads it back for the switch-back gap (and draws the same, so it settles)
+    // only stacking the height chose counts for the gap: one the width forced (a dock
+    // still too narrow on its first draw) mustn't hold the pane stacked once it's wider
+    const isStackedByHeight = stacked && boardMetrics(columns).isSideBySide
+    if (isStackedByHeight !== wasStacked) $.clock.after(0, () => update($, isStacked, () => isStackedByHeight))
+    // the rows it opened with: stacking waits until the room grows past them
+    if (rowsAtOpen == null && bodyRows != null) $.clock.after(0, () => update($, openRows, rows => rows ?? bodyRows))
+    if (e.props?.placement === 'dock' && columns < SIDE_BY_SIDE_MIN && !hasAskedWidth) {
+      hasAskedWidth = true
+      $.clock.after(0, () => $.ui.open({ id: PANE, title: 'Wordle', closeOnEscape: true, columns: COMPACT_WIDTH }))
+    }
+
+    // the splash starts on the first draw after an open (a pane that waits unplaced plays
+    // it when it appears); later draws, resizes included, leave the running one alone
+    if (view.splash && !splashTimer) {
+      splashTimer = STARTING
+      $.clock.after(0, () => runSplash($))
+    }
+
+    // while the splash plays its hand-off loads the puzzle (and must not be pulled to the picker under it)
+    if (!view.game && !isLoading && !view.splash) {
+      isLoading = true
+      $.clock.after(0, async () => {
+        await startDate($, await today($))
+        await routeOpening($)
+      })
+    }
+
+    return renderBoard({ h, Box, Text, Button, Input, Select }, view, {
+      letter: async ch => {
+        await typeLetter($, ch)
+        await focusGuess($)
+      },
+      enter: async () => {
+        await enter($)
+        await focusGuess($)
+      },
+      backspace: async () => {
+        await backspace($)
+        await focusGuess($)
+      },
       input: text => setDraft($, text),
+      pickDate: async value => {
+        await pickDate($, value)
+        // a refused typed date leaves its field open, and the keyboard with it
+        if (!(await read($, isDateEntryOpen))) await focusGuess($)
+      },
+      stepStage: async dir => {
+        await stepToStage($, dir)
+        await focusGuess($)
+      },
+      toggleStats: () => toggleStats($),
+      toggleDateEntry: () => toggleDateEntry($),
+      clearStats: () => clearStats($),
       fallbackInfo: () => $.ui.toast(FALLBACK_NOTE),
+      continue: () => goPicker($),
+      stepPicker: dir => stepPickerDate($, dir),
+      choosePickerDate: value => update($, pickerDate, () => value),
+      randomGame: () => playRandom($),
+      playPicked: () => playShown($),
+      openToday: async () => {
+        await openToday($)
+        await focusGuess($)
+      },
+      skipSplash: () => endSplash($),
     })
   })
 }
