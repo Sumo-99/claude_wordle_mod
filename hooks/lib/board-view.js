@@ -3,6 +3,7 @@ import { gameScore, hiScore, keyLook, livesText, pad, PALETTE, stageLabel, stepS
 import { celebrationRows, MIN_COLUMNS, MIN_ROWS } from './fireworks.js'
 import { MAX_GUESSES, WORD_LENGTH } from './game-engine.js'
 import { formatCount, longDate, nextDailyIn, recentUnplayed, remaining } from './picker.js'
+import { skipButton, splashLayout, splashRows } from './splash.js'
 import { winPercent } from './stats.js'
 
 export const FALLBACK_NOTE = "Couldn't reach the live word — showing an offline puzzle instead."
@@ -57,6 +58,59 @@ const celebrationScreen = (h, Box, Text, frame, screen, reducedMotion) => {
     Box,
     { key: 'fireworks-wrap', flexDirection: 'column', alignItems: 'center' },
     h(Box, { key: 'fireworks', flexDirection: 'column', width: columns }, ...rows.map(drawRow)),
+  )
+}
+
+/** The runs covering columns [from, to) of a row of runs. */
+const sliceRuns = (runs, from, to) => {
+  const out = []
+  let x = 0
+  for (const run of runs) {
+    const chars = [...run.text]
+    const text = chars.slice(Math.max(0, from - x), Math.max(0, to - x)).join('')
+    if (text) out.push({ ...run, text })
+    x += chars.length
+  }
+
+  return out
+}
+
+/**
+ * The opening splash: while it runs it REPLACES the pane, as the win screen does.
+ * `splashRows` paints the picture (centred; a bigger pane doesn't stretch it); the
+ * skip line's `1: label` is a real Button (a click or `1` skips). Typed keys skip
+ * too: they land in a key-catcher field drawn zero rows tall, so the picture keeps
+ * its rows and the letter never reaches the guess. `splash` is `{ frame, opts }`.
+ */
+const splashScreen = (ui, splash, layout, on) => {
+  const { h, Box, Text, Button, Input } = ui
+  const screen = { columns: layout.columns, rows: layout.rows }
+  const { columns } = splashLayout(screen)
+  const skip = skipButton(splash.frame, screen, splash.opts)
+  const drawRuns = (runs, prefix) =>
+    runs.map((run, i) => h(Text, { key: `${prefix}${i}`, color: run.color, bold: run.bold, backgroundColor: run.backgroundColor }, run.text))
+  const drawRow = (runs, y) => {
+    if (skip?.row !== y) return h(Box, { key: `sp${y}`, flexDirection: 'row' }, ...drawRuns(runs, 'r'))
+    const end = skip.column + skip.hotkey.length + 2 + skip.label.length
+
+    return h(
+      Box,
+      { key: `sp${y}`, flexDirection: 'row', backgroundColor: PALETTE.background },
+      ...drawRuns(sliceRuns(runs, 0, skip.column), 'a'),
+      h(Button, { key: 'skip-splash', label: skip.label, hotkey: skip.hotkey, plain: true, dimColor: true, onPress: () => on.skipSplash() }),
+      ...drawRuns(sliceRuns(runs, end, columns), 'b'),
+    )
+  }
+
+  return h(
+    Box,
+    { key: 'splash-wrap', flexDirection: 'column', alignItems: 'center', width: layout.columns },
+    h(Box, { key: 'splash', flexDirection: 'column', width: columns }, ...splashRows(splash.frame, screen, splash.opts).map(drawRow)),
+    h(
+      Box,
+      { key: 'splash-keys', height: 0, overflow: 'hidden' },
+      h(Input, { key: 'splash-key', value: '', autoFocus: true, submitLabel: 'skip', onInput: () => on.skipSplash(), onSubmit: () => on.skipSplash() }),
+    ),
   )
 }
 
@@ -586,13 +640,14 @@ const pickerScreen = (ui, view, on) => {
  * never touches the engine's `$`.
  *
  * @param ui `{ h, Box, Text, Button, Input, Select }`
- * @param view `{ game, draft, puzzle, today, stats, isStatsOpen, isConfirmingClear, isDateEntryOpen, isFieldBlanked, celebrationFrame, isMotionReduced, screen, layout }`; `celebrationFrame` >= 0 shows the win screen instead of the board; `screen` is `{ columns, rows }`, the win screen's size; `layout` is `{ columns, rows, isStacked }`: the pane body's width, which sizes the tiles and chips, its rows (when known), which the compact layout fits (see `compactFit`), and whether to stack (see `isStackedLayout`); `game` null means still loading; `mode` 'picker' (with `picker` `{ todayGame, played, date, dir, now }`) draws the Pick a game screen instead of the board
- * @param on `{ letter(ch), enter(), backspace(), input(text), pickDate(date), stepStage(dir), toggleStats(), toggleDateEntry(), clearStats(), fallbackInfo(), continue(), choosePickerDate(date), randomGame(), playPicked(), openToday() }`
+ * @param view `{ game, draft, puzzle, today, stats, isStatsOpen, isConfirmingClear, isDateEntryOpen, isFieldBlanked, celebrationFrame, isMotionReduced, screen, layout }`; `celebrationFrame` >= 0 shows the win screen instead of the board; `splash` (`{ frame, opts }`, see splash.js) shows the opening splash instead; `screen` is `{ columns, rows }`, the win screen's size; `layout` is `{ columns, rows, isStacked }`: the pane body's width, which sizes the tiles and chips, its rows (when known), which the compact layout fits (see `compactFit`), and whether to stack (see `isStackedLayout`); `game` null means still loading; `mode` 'picker' (with `picker` `{ todayGame, played, date, dir, now }`) draws the Pick a game screen instead of the board
+ * @param on `{ letter(ch), enter(), backspace(), input(text), pickDate(date), stepStage(dir), toggleStats(), toggleDateEntry(), clearStats(), fallbackInfo(), continue(), choosePickerDate(date), randomGame(), playPicked(), openToday(), skipSplash() }`
  */
 export const renderBoard = (ui, view, on) => {
   const { h, Box, Text, Button, Input, Select } = ui
   const { game, draft, puzzle, today, stats, isStatsOpen, isConfirmingClear, isDateEntryOpen, celebrationFrame, isMotionReduced, screen, layout } = view
   if (celebrationFrame >= 0) return celebrationScreen(h, Box, Text, celebrationFrame, screen, isMotionReduced)
+  if (view.splash) return splashScreen(ui, view.splash, layout, on)
   if (view.mode === 'picker' && view.picker) return pickerScreen(ui, view, on)
   if (!game) {
     return h(Box, { flexDirection: 'column', backgroundColor: PALETTE.background }, h(Text, { color: PALETTE.dim }, 'LOADING TODAY’S STAGE…'))

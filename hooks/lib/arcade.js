@@ -28,6 +28,31 @@ export const PALETTE = {
   stage: '#e8875f',
 }
 
+// A 5×7 bitmap per title letter, '#' lit. Packed two pixel rows per text row
+// into ▀ ▄ █, so the title is 4 rows tall. (Stage 08's big title; the opening splash draws it now.)
+const FONT = {
+  W: ['#...#', '#...#', '#...#', '#.#.#', '#.#.#', '##.##', '#...#'],
+  O: ['#####', '#...#', '#...#', '#...#', '#...#', '#...#', '#####'],
+  R: ['####.', '#...#', '#...#', '####.', '#.#..', '#..#.', '#...#'],
+  D: ['####.', '#...#', '#...#', '#...#', '#...#', '#...#', '####.'],
+  L: ['#....', '#....', '#....', '#....', '#....', '#....', '#####'],
+  E: ['#####', '#....', '#....', '####.', '#....', '#....', '#####'],
+}
+
+const HALF = { '00': ' ', '10': '▀', '01': '▄', '11': '█' }
+
+/** `word` in the block font: 4 strings, one per text row, letters one column apart. */
+export const blockTitle = (word = 'WORDLE') => {
+  const glyphs = [...word].map(ch => FONT[ch])
+  const lit = (glyph, y, x) => (glyph[y]?.[x] === '#' ? '1' : '0')
+
+  return Array.from({ length: 4 }, (_, row) =>
+    glyphs
+      .map(glyph => Array.from({ length: 5 }, (_, x) => HALF[lit(glyph, row * 2, x) + lit(glyph, row * 2 + 1, x)]).join(''))
+      .join(' '),
+  )
+}
+
 /** The score a game earns: 100 for every guess left unused on a win, 0 otherwise. */
 export const gameScore = game => (game?.status === 'won' ? (MAX_GUESSES - game.guesses.length) * 100 : 0)
 

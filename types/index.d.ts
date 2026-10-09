@@ -23,6 +23,19 @@ export type WordleStats = {
   distribution: number[]
 }
 
+/** What the opening splash draws from (see hooks/lib/splash.js), read once as the pane opens. */
+export type WordleSplashOptions = {
+  /** Today, 'YYYY-MM-DD': the HUD's STAGE. */
+  date: string
+  hiScore: number
+  /** Today's puzzle is finished: row 9 reads PICK YOUR NEXT GAME, and the hand-off opens the picker. */
+  isTodayDone: boolean
+  /** The 1 s settled picture instead of the animation. */
+  reducedMotion: boolean
+  /** Opened by auto-open: the 2 s cut. */
+  isAutoOpen: boolean
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'wordle-mod': {
@@ -61,6 +74,8 @@ declare module 'claude-code' {
       todayGame: WordleGame | null
       /** The clock at the picker's last once-a-second tick; redraws the countdown. */
       tick: number
+      /** The opening splash while it plays (`frame` counts 100 ms frames from the open); null otherwise. Session only. */
+      splash: { id: number; frame: number; opts: WordleSplashOptions } | null
     }
   }
 }

@@ -209,3 +209,26 @@ Setup: a fresh store, or `/wordle config reset-history confirm` (it clears saved
 - [ ] **Day rollover** (fake the clock: set the system clock to 23:59:50 on the day you played, or run the pane with a test clock): the countdown reaches 00:00:00, the header turns to `TODAY NOT FINISHED`, the `N left` count returns to the whole pool, and the played-today set is empty (`played-today` in the store shows the new day).
 - [ ] **Every game played**: (hard to reach by hand; the automated test covers it) RANDOM GAME says *You've played every game today!* and the count is whole again.
 - [ ] Desktop app (Code tab): the card blocks, the fills and `1: play` / `2: play` draw correctly; note any difference from the terminal.
+
+## Stage 11 — Opening splash ("Chomp & grade")
+Reference: `docs/ui-ref/wordle-splash-AB.png` (six keyframes). Contract: `plan/stages/11_opening_splash/CONTEXT.md`. Gameplay, stats and the win celebration are unchanged.
+
+What was decided (confirm these look and feel right):
+- **Any key** needs somewhere to land: a pane only hands typed keys to a field or to Button hotkeys. So while the splash plays, a key-catcher field (`splash-key`) holds the keyboard, drawn **zero rows tall** so the picture is unchanged. A letter, digit or Enter typed into it skips. Arrows and Tab move the focus instead; Esc closes the pane.
+- **A click** needs a target the whole time, so row 9 shows a dim `1: SKIP` during the animation, and `DAILY PUZZLE · 1: PRESS ANY KEY TO SKIP` once it settles (the reference leaves row 9 blank before the settle). `1: …` is a real Button with hotkey `1`.
+- The flash covers frames 30–31 (3.0–3.2 s; 3.15 s falls inside frame 31), matching the reference's `t = 3.1 s white flash`.
+- Auto-open plays its 2 s cut only when it actually opens the pane: on a later turn with the pane already up (mid-game, say), nothing replays.
+
+Setup: `/wordle config reset-history confirm` for "today unplayed"; finish today's puzzle for "today finished".
+
+- [ ] **`/wordle` with today unplayed**: the splash plays for about 4 seconds (chomp, green wave with `✓ ✓ ✓ ✓ ✓ ✓`, white flash, terracotta with READY! blinking), then today's game opens with the TYPE field ready. Compare the frames with the reference: eater shape, pellets with `●` at both ends, the letter colors (W green, O amber, R green, D gray, L amber, E green), the eater taking the color of the letter it's in.
+- [ ] **`/wordle` with today finished**: row 9 reads `PICK YOUR NEXT GAME · 1: PRESS ANY KEY TO SKIP`, and it ends on the Pick a game screen (keyboard on RANDOM GAME).
+- [ ] **Skip with a key**: open `/wordle` and type a letter (say `q`) mid-chomp. It skips at once to the game, and the guess row is **empty** (no Q). Also try Enter, and `1`. *If a typed letter does nothing, the zero-row field isn't taking keys on this surface: note which one.*
+- [ ] **Skip with a click**: click `1: SKIP` mid-animation, and `PRESS ANY KEY TO SKIP` after it settles. Both skip at once.
+- [ ] **Auto-open (short version)**: `/wordle config auto-open on`, close the pane, send Claude a prompt (in a terminal at least 144 columns wide). The pane opens with a 2-second cut (a faster chomp, no wave or flash), and your prompt keeps the keyboard. Send another prompt while the pane is still open: the splash does **not** replay.
+- [ ] **Reduced motion**: `/wordle config reduce-motion on`, then `/wordle`: the settled picture (terracotta, READY! steady) for 1 second, no chomp, wave or flash, then the hand-off.
+- [ ] **Narrow pane (~40 columns)**: a plain bold `W O R D L E`, its letters appearing left to right in the score colors, then the same wave, flash and settle; the HUD drops HI-SCORE and nothing overlaps.
+- [ ] **Short pane (~8 rows)**: the `1UP` line and the skip line are gone; the title and READY! are whole, and the frame keeps its walls.
+- [ ] **Resize while it plays**: drag the pane or terminal narrower and wider mid-splash. It reflows (block ↔ plain title) but does **not** restart, and still ends about 4 seconds after the open. Wider than 78 columns it stays 78 wide, centred.
+- [ ] **Esc mid-splash** closes the pane cleanly; `/wordle` again plays the splash from the start.
+- [ ] **Desktop app (Code tab)**: the double-line frame, the block title (`▀ ▄ █`) and the colors draw correctly; note how the `1: …` Button sits on row 9 (a native button may be wider than its text) and whether typing a letter skips there too.

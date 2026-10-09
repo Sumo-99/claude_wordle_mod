@@ -2,7 +2,8 @@ import { atom, read, update } from 'claude-code'
 
 import { boardMetrics, COMPACT_WIDTH, FALLBACK_NOTE, isStackedLayout, renderBoard, SIDE_BY_SIDE_MIN } from './lib/board-view.js'
 import { boardKey, checkArchiveDate } from './lib/archive.js'
-import { stepStage } from './lib/arcade.js'
+import { hiScore, stepStage } from './lib/arcade.js'
+import { FRAME_MS as SPLASH_FRAME_MS, splashFrames } from './lib/splash.js'
 import {
   ALL_PLAYED_MESSAGE,
   checkPickerDate,
@@ -51,6 +52,8 @@ const pickerDir = atom({ plugin: 'wordle-mod', key: 'pickerDir' }, -1)
 const playedToday = atom({ plugin: 'wordle-mod', key: 'playedToday' }, { day: null, dates: [] })
 const todayGame = atom({ plugin: 'wordle-mod', key: 'todayGame' }, null)
 const tick = atom({ plugin: 'wordle-mod', key: 'tick' }, 0)
+// the opening splash while it plays: `{ id, frame, opts }` (see lib/splash.js), else null
+const splash = atom({ plugin: 'wordle-mod', key: 'splash' }, null)
 
 const CLEAR_CONFIRM_MS = 5000
 
@@ -79,12 +82,111 @@ let isLoading = false
 // grow when the terminal does, and it can't buy rows the layout hasn't got to spare.
 let hasAskedWidth = false
 
-/** Opens the pane afresh: compact first, whatever the room, until the room grows. */
-const openPane = async ($, options) => {
+/**
+ * Opens the pane afresh: compact first, whatever the room, until the room grows.
+ * `splash` arms the opening splash ('full' from /wordle, 'short' from auto-open);
+ * the pane's first draw starts it.
+ */
+const openPane = async ($, options, { splash: version = null } = {}) => {
   hasAskedWidth = false
   await update($, openRows, () => null)
   await update($, isStacked, () => false)
+  try {
+    if (version) await armSplash($, version === 'short')
+  } catch {
+    // no splash is better than no pane: open straight onto the game
+  }
   await $.ui.open({ id: PANE, title: 'Wordle', closeOnEscape: true, ...options })
+}
+
+const isPaneOpen = async $ => {
+  try {
+    return (await $.ui.panes()).some(pane => pane.id === PANE)
+  } catch {
+    return false
+  }
+}
+
+// ---- the opening splash (lib/splash.js) ----
+
+// The running frame timer; STARTING while the first draw's start is queued. The module's
+// own, so after a reload the next draw finds none and carries on from the saved frame.
+const STARTING = { cancel: () => {} }
+let splashTimer = null
+let nextSplashId = 1
+let endedSplashId = 0
+
+const stopSplashTimer = () => {
+  splashTimer?.cancel()
+  splashTimer = null
+}
+
+/**
+ * Readies a splash for the pane about to open, frame 0. Reads, never writes: the
+ * HI-SCORE, whether today is finished (row 9's line), and the reduced-motion setting.
+ */
+const armSplash = async ($, isAutoOpen) => {
+  const io = makeIo($)
+  const now = await today($)
+  const saved = await io.store.get(boardKey(now))
+  const opts = {
+    date: now,
+    hiScore: hiScore(await loadStats(io)),
+    isTodayDone: Boolean(saved?.status && saved.status !== 'playing'),
+    reducedMotion: (await $.store.get(REDUCE_MOTION_KEY)) === true,
+    isAutoOpen,
+  }
+  stopSplashTimer()
+  const id = nextSplashId++
+  await update($, splash, () => ({ id, frame: 0, opts }))
+}
+
+/** Steps the armed splash every 100 ms from its saved frame; at the last frame it hands off. */
+const runSplash = async $ => {
+  if (splashTimer && splashTimer !== STARTING) return // another queued start got there first
+  const current = await read($, splash)
+  if (!current) {
+    splashTimer = null
+
+    return
+  }
+  if (splashTimer && splashTimer !== STARTING) return
+  const timer = $.clock.every(SPLASH_FRAME_MS, async () => {
+    const next = await update($, splash, s => (s?.id === current.id ? { ...s, frame: s.frame + 1 } : s))
+    if (next?.id !== current.id) return timer.cancel() // ended, or a newer open replaced it
+    if (next.frame >= splashFrames(next.opts)) await endSplash($)
+  })
+  splashTimer = timer
+  // a /wordle open holds the keyboard: put it on the key catcher, so any key skips.
+  // Auto-open never takes the keys from the person's next prompt.
+  if (!current.opts.isAutoOpen) {
+    try {
+      await $.ui.focus({ requestId: PANE, key: 'splash-key' })
+    } catch {
+      // a click or `1` still skips
+    }
+  }
+}
+
+/**
+ * Ends the splash: its last frame, a skip (any key, a click, `1`) or the pane
+ * closing. Then, unless the pane closed, the hand-off: today's game, or the
+ * picker when today is finished. Runs once per splash, however many skips race.
+ */
+const endSplash = async ($, { handOff = true } = {}) => {
+  const current = await read($, splash)
+  if (!current || current.id === endedSplashId) return
+  endedSplashId = current.id
+  stopSplashTimer()
+  await update($, splash, () => null)
+  if (!handOff) return
+  await update($, isDateEntryOpen, () => false)
+  await update($, isStatsOpen, () => false)
+  await startDate($, await today($))
+  const g = await read($, game)
+  if (g && g.status !== 'playing') return goPicker($)
+  await leavePicker($)
+  await focusGuess($)
 }
 
 /**
@@ -485,7 +587,8 @@ export const register = on => {
 
       return { text: describeResetDone(games) }
     }
-    await openPane($, { focus: true })
+    // every /wordle plays the splash, even onto a pane that is already open
+    await openPane($, { focus: true }, { splash: 'full' })
 
     return { text: 'Wordle pane opened.' }
   })
@@ -493,10 +596,12 @@ export const register = on => {
   // Auto-open: only if the person turned it on. No `focus` (the mod opened it,
   // not the person, so it must not take the keyboard from the next prompt), and
   // there is deliberately no turn.complete hook: the pane never auto-closes.
+  // The short splash plays only when this actually opens it: a pane already up
+  // (mid-game, say) is left as it is on every later turn.
   on('turn.start', async ($, e, next) => {
     try {
       if ((await $.store.get(AUTO_OPEN_KEY)) === true) {
-        await openPane($, {})
+        await openPane($, {}, { splash: (await isPaneOpen($)) ? null : 'short' })
       }
     } catch {
       // a refused open must never get in the way of Claude's turn
@@ -504,6 +609,13 @@ export const register = on => {
 
     return next(e)
   })
+
+  // Closing the pane (Esc, its close mark) ends a splash that is playing, with no hand-off.
+  on('ui.close', async ($, e, next) => {
+    if (e.id === PANE) await endSplash($, { handOff: false })
+
+    return next(e)
+  }).catch(($, e, next) => next(e)) // a failure here must never keep the pane open
 
   on('ui.render', { component: 'Pane' }, async ($, e, next) => {
     if (e.requestId !== PANE) return next(e)
@@ -529,6 +641,7 @@ export const register = on => {
       isFieldBlanked: await read($, isFieldBlanked),
       mode: await read($, mode),
       picker: await pickerView($),
+      splash: await read($, splash),
       // the win screen fills the pane: the Pane's own width and row room (this build hands
       // them over under `e.props`), the rows capped so the red stays about the board's height.
       screen: {
@@ -551,7 +664,15 @@ export const register = on => {
       $.clock.after(0, () => $.ui.open({ id: PANE, title: 'Wordle', closeOnEscape: true, columns: COMPACT_WIDTH }))
     }
 
-    if (!view.game && !isLoading) {
+    // the splash starts on the first draw after an open (a pane that waits unplaced plays
+    // it when it appears); later draws, resizes included, leave the running one alone
+    if (view.splash && !splashTimer) {
+      splashTimer = STARTING
+      $.clock.after(0, () => runSplash($))
+    }
+
+    // while the splash plays its hand-off loads the puzzle (and must not be pulled to the picker under it)
+    if (!view.game && !isLoading && !view.splash) {
       isLoading = true
       $.clock.after(0, async () => {
         await startDate($, await today($))
@@ -595,6 +716,7 @@ export const register = on => {
         await openToday($)
         await focusGuess($)
       },
+      skipSplash: () => endSplash($),
     })
   })
 }
