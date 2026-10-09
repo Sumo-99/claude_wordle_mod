@@ -3,6 +3,18 @@ import { atom, read, update } from 'claude-code'
 import { boardMetrics, COMPACT_WIDTH, FALLBACK_NOTE, isStackedLayout, renderBoard, SIDE_BY_SIDE_MIN } from './lib/board-view.js'
 import { boardKey, checkArchiveDate } from './lib/archive.js'
 import { stepStage } from './lib/arcade.js'
+import {
+  ALL_PLAYED_MESSAGE,
+  checkPickerDate,
+  clearPlayed,
+  loadPlayed,
+  markPlayed,
+  PLAYED_KEY,
+  RANDOM_KEY,
+  randomDate,
+  shownDate,
+  stepPicker,
+} from './lib/picker.js'
 import { FRAME_MS, TOTAL_FRAMES } from './lib/fireworks.js'
 import {
   AUTO_OPEN_KEY,
@@ -32,6 +44,13 @@ const celebrationFrame = atom({ plugin: 'wordle-mod', key: 'celebrationFrame' },
 const isMotionReduced = atom({ plugin: 'wordle-mod', key: 'isMotionReduced' }, false)
 const isStacked = atom({ plugin: 'wordle-mod', key: 'isStacked' }, false)
 const openRows = atom({ plugin: 'wordle-mod', key: 'openRows' }, null)
+// which screen the pane shows: the game board, or the Pick a game screen
+const mode = atom({ plugin: 'wordle-mod', key: 'mode' }, 'game')
+const pickerDate = atom({ plugin: 'wordle-mod', key: 'pickerDate' }, null)
+const pickerDir = atom({ plugin: 'wordle-mod', key: 'pickerDir' }, -1)
+const playedToday = atom({ plugin: 'wordle-mod', key: 'playedToday' }, { day: null, dates: [] })
+const todayGame = atom({ plugin: 'wordle-mod', key: 'todayGame' }, null)
+const tick = atom({ plugin: 'wordle-mod', key: 'tick' }, 0)
 
 const CLEAR_CONFIRM_MS = 5000
 
@@ -71,9 +90,10 @@ const openPane = async ($, options) => {
 /**
  * Makes `date` the active puzzle: its word, and the saved board if that date was
  * started before (so switching back resumes it). Runs from a timer or a handler,
- * never from a draw.
+ * never from a draw. `fresh` (the picker opening a past date) starts a new board in
+ * place of a saved one that is finished; an unfinished one is resumed either way.
  */
-const startDate = async ($, date) => {
+const startDate = async ($, date, { fresh = false } = {}) => {
   try {
     const io = makeIo($)
     const { solution, source } = await resolveWord(io, date)
@@ -81,8 +101,10 @@ const startDate = async ($, date) => {
     // If this date was started on an offline word and the live word has since come
     // back different, finish the game already in progress on the word it began with
     // (still marked offline) rather than throwing the player's guesses away.
-    const keepSaved = saved && (saved.answer === solution || saved.guesses.length > 0)
+    const isReplay = fresh && saved?.status && saved.status !== 'playing'
+    const keepSaved = saved && !isReplay && (saved.answer === solution || saved.guesses.length > 0)
     const resumed = keepSaved ? saved : createGame(solution)
+    if (isReplay) await io.store.set(boardKey(date), resumed)
     const shownSource = resumed.answer === solution ? source : 'fallback'
     const isToday = date === (await today($))
     const savedStats = await loadStats(io)
@@ -183,22 +205,34 @@ const enter = async $ => {
   // Only a finished game of today's puzzle counts; practice dates never do. The
   // game was 'playing' before this guess, so this fires once per game, and a
   // finished board that is merely resumed later never reaches here.
-  if (out.game.status !== 'playing' && active && active.date === (await today($))) {
-    const next = await recordCompletion(makeIo($), {
-      won: out.game.status === 'won',
-      guessCount: out.game.guesses.length,
-    })
-    await update($, stats, () => next)
+  if (out.game.status !== 'playing' && active) {
+    const now = await today($)
+    if (active.date === now) {
+      const next = await recordCompletion(makeIo($), {
+        won: out.game.status === 'won',
+        guessCount: out.game.guesses.length,
+      })
+      await update($, stats, () => next)
+    } else {
+      // a practice game that ended: the picker leaves it out for the rest of the day
+      await markPlayed(makeIo($), now, active.date)
+    }
   }
   if (out.game.status === 'won') {
     $.ui.toast(`Solved in ${out.game.guesses.length}!`)
     await celebrate($)
   }
-  if (out.game.status === 'lost') $.ui.toast(`The word was ${out.game.answer.toUpperCase()}`)
+  if (out.game.status === 'lost') {
+    $.ui.toast(`The word was ${out.game.answer.toUpperCase()}`)
+    // the finished board holds the answer a moment, then the picker opens on its own
+    const date = active?.date
+    $.clock.after(LOSS_HOLD_MS, () => finishToPicker($, date))
+  }
 }
 
 /** ▶ TODAY and the date field: validate, then switch the active puzzle. */
 const pickDate = async ($, input) => {
+  if ((await read($, mode)) === 'picker') return playTyped($, input)
   const check = checkArchiveDate(input, await today($))
   if (!check.ok) return $.ui.toast(check.reason)
   await update($, isDateEntryOpen, () => false)
@@ -225,34 +259,165 @@ const toggleDateEntry = async $ => {
   }
 }
 
+// ---- the Pick a game screen ----
+
+let tickTimer = null
+
+/** Reads today's saved board and the played-today set into the atoms the picker draws from. */
+const refreshPicker = async $ => {
+  const io = makeIo($)
+  const now = await today($)
+  const saved = await io.store.get(boardKey(now))
+  await update($, todayGame, () => (saved?.status && saved.status !== 'playing' ? saved : null))
+  const dates = await loadPlayed(io, now)
+  await update($, playedToday, () => ({ day: now, dates }))
+}
+
+/** Shows the picker; its clock ticks (the countdown) only while it is the screen. */
+const goPicker = async $ => {
+  await update($, isDateEntryOpen, () => false)
+  await update($, isStatsOpen, () => false)
+  await update($, pickerDate, () => null)
+  await update($, pickerDir, () => -1)
+  await update($, tick, () => 0)
+  await refreshPicker($)
+  await update($, mode, () => 'picker')
+  tickTimer?.cancel()
+  tickTimer = $.clock.every(1000, async () => {
+    if ((await read($, mode)) !== 'picker') return tickTimer?.cancel()
+    // a new day: today's board and the played-today set are another day's now
+    if ((await read($, playedToday)).day !== (await today($))) await refreshPicker($)
+    const now = await $.clock.now()
+    await update($, tick, () => now)
+  })
+  // the finished board's field is gone, so the keys would have nowhere to land: give
+  // them to RANDOM GAME, which puts the picker's 1 and 2 hotkeys in reach at once
+  try {
+    await $.ui.focus({ requestId: PANE, key: 'random' })
+  } catch {
+    // focus is a convenience; a click works too
+  }
+}
+
+// How long a lost board shows the answer before the picker opens on its own.
+const LOSS_HOLD_MS = 3000
+
+/**
+ * A game just ended (the celebration ran out, or a loss's hold is over): the picker opens
+ * on its own. Only if that same finished game is still on screen; one the person already
+ * left (CONTINUE, another date) is not pulled away from.
+ */
+const finishToPicker = async ($, date) => {
+  if ((await read($, mode)) !== 'game') return
+  const g = await read($, game)
+  if (!g || g.status === 'playing' || (await read($, puzzle))?.date !== date) return
+  await goPicker($)
+}
+
+const leavePicker = async $ => {
+  tickTimer?.cancel()
+  tickTimer = null
+  await update($, mode, () => 'game')
+}
+
+/** What the pane opens on: today's puzzle, or the picker once it is finished. */
+const openToday = async $ => {
+  await update($, isDateEntryOpen, () => false)
+  await startDate($, await today($))
+  await leavePicker($)
+}
+
+/** After a puzzle loads on its own (the pane opening): a finished daily goes to the picker. */
+const routeOpening = async $ => {
+  const g = await read($, game)
+  if (g && g.status !== 'playing') await goPicker($)
+}
+
+/** Opens a pool date from the picker: resumes an unfinished board, replaces a finished one. */
+const openPracticeDate = async ($, date) => {
+  await update($, isDateEntryOpen, () => false)
+  await startDate($, date, { fresh: true })
+  await leavePicker($)
+}
+
+/** Every date is played: say so and start the set over. */
+const allPlayed = async $ => {
+  $.ui.toast(ALL_PLAYED_MESSAGE)
+  await clearPlayed(makeIo($), await today($))
+  await refreshPicker($)
+}
+
+const playRandom = async $ => {
+  const now = await today($)
+  const fixed = await $.store.get(RANDOM_KEY)
+  const date = randomDate(now, await loadPlayed(makeIo($), now), typeof fixed === 'number' ? () => fixed : undefined)
+  if (!date) return allPlayed($)
+  await openPracticeDate($, date)
+}
+
+const stepPickerDate = async ($, dir) => {
+  const now = await today($)
+  const played = await loadPlayed(makeIo($), now)
+  const next = stepPicker(shownDate(await read($, pickerDate), now, played), now, played, dir)
+  if (!next) return
+  await update($, pickerDate, () => next)
+  await update($, pickerDir, () => dir)
+}
+
+const playShown = async $ => {
+  const now = await today($)
+  const played = await loadPlayed(makeIo($), now)
+  const date = shownDate(await read($, pickerDate), now, played)
+  if (played.includes(date)) return allPlayed($)
+  await openPracticeDate($, date)
+}
+
+/** The typed date on the picker: a rejection toasts and leaves the field open. */
+const playTyped = async ($, input) => {
+  const now = await today($)
+  const check = checkPickerDate(input, now, await loadPlayed(makeIo($), now))
+  if (!check.ok) return $.ui.toast(check.reason)
+  await openPracticeDate($, check.date)
+}
+
+/** What the picker draws: the played-today set counts only for today, whatever day the record is from. */
+const pickerView = async $ => {
+  const now = await today($)
+  const record = await read($, playedToday)
+  const played = record.day === now ? record.dates : []
+
+  return {
+    todayGame: await read($, todayGame),
+    played,
+    date: shownDate(await read($, pickerDate), now, played),
+    dir: await read($, pickerDir),
+    now: (await read($, tick)) || (await $.clock.now()),
+  }
+}
+
 let celebrationTimer = null
 
 /**
- * Plays the win celebration: a timer steps the frame until the animation ends,
- * or until `skipCelebration` cuts it short. Reads the reduced-motion setting
- * once, as it starts.
+ * Plays the win celebration: a timer steps the frame until the animation ends, then
+ * the picker opens. It always plays in full: there is no skip. Reads the
+ * reduced-motion setting once, as it starts.
  */
 const celebrate = async $ => {
   if ((await read($, celebrationFrame)) >= 0) return
   const isReduced = (await $.store.get(REDUCE_MOTION_KEY)) === true
   await update($, isMotionReduced, () => isReduced)
   await update($, celebrationFrame, () => 0)
+  const date = (await read($, puzzle))?.date
   celebrationTimer?.cancel()
   const timer = $.clock.every(FRAME_MS, async () => {
     const frame = await update($, celebrationFrame, n => (n < 0 ? n : n + 1))
     if (frame < 0 || frame >= TOTAL_FRAMES) {
       timer.cancel()
       await update($, celebrationFrame, () => -1)
+      await finishToPicker($, date)
     }
   })
   celebrationTimer = timer
-}
-
-/** The win screen's own control (a click, or the Enter hotkey): back to the board now. */
-const skipCelebration = async $ => {
-  celebrationTimer?.cancel()
-  celebrationTimer = null
-  await update($, celebrationFrame, () => -1)
 }
 
 /**
@@ -315,6 +480,8 @@ export const register = on => {
       await update($, game, () => null)
       await update($, draft, () => '')
       await update($, puzzle, () => null)
+      await $.store.delete(PLAYED_KEY)
+      await leavePicker($)
 
       return { text: describeResetDone(games) }
     }
@@ -360,9 +527,10 @@ export const register = on => {
       celebrationFrame: await read($, celebrationFrame),
       isMotionReduced: await read($, isMotionReduced),
       isFieldBlanked: await read($, isFieldBlanked),
+      mode: await read($, mode),
+      picker: await pickerView($),
       // the win screen fills the pane: the Pane's own width and row room (this build hands
       // them over under `e.props`), the rows capped so the red stays about the board's height.
-      // It must not be taller than the room, or the `1: continue` row on its bottom is clipped.
       screen: {
         columns: e.props?.bodyColumns ?? e.viewport?.columns ?? 40,
         rows: Math.min(26, e.props?.scroll?.bodyRows ?? Math.max(12, (e.viewport?.rows ?? 30) - 6)),
@@ -385,7 +553,10 @@ export const register = on => {
 
     if (!view.game && !isLoading) {
       isLoading = true
-      $.clock.after(0, async () => startDate($, await today($)))
+      $.clock.after(0, async () => {
+        await startDate($, await today($))
+        await routeOpening($)
+      })
     }
 
     return renderBoard({ h, Box, Text, Button, Input, Select }, view, {
@@ -415,7 +586,15 @@ export const register = on => {
       toggleDateEntry: () => toggleDateEntry($),
       clearStats: () => clearStats($),
       fallbackInfo: () => $.ui.toast(FALLBACK_NOTE),
-      skipCelebration: () => skipCelebration($),
+      continue: () => goPicker($),
+      stepPicker: dir => stepPickerDate($, dir),
+      choosePickerDate: value => update($, pickerDate, () => value),
+      randomGame: () => playRandom($),
+      playPicked: () => playShown($),
+      openToday: async () => {
+        await openToday($)
+        await focusGuess($)
+      },
     })
   })
 }

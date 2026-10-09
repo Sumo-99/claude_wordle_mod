@@ -20,6 +20,14 @@ const tileAt = async (pane: any, r: number, i: number) => {
 }
 const rowOf = async (pane: any, r: number) => Promise.all([0, 1, 2, 3, 4].map(i => tileAt(pane, r, i)))
 
+/** A finished game opens the picker on its own; ↺ TODAY'S BOARD brings today's finished board back. */
+const todaysBoard = async (pane: any, clock: any) => {
+  expect(await pane.find({ key: 'card-random' })).toBeDefined()
+  await pane.press({ key: 'todays-board' })
+  await clock.settle()
+  await clock.settle()
+}
+
 /** The typed-date field behind DATE…: the way to a day outside the ◀ ▶ steps. */
 const goTo = async (pane: any, clock: any, date: string) => {
   await pane.press({ key: 'date-entry' })
@@ -71,7 +79,8 @@ for (const surface of ['terminal', 'desktop'] as const) {
     for (let i = 0; i < 5; i++) await pane.press({ key: 'back' } as any)
     expect((await tileAt(pane, 1, 0)).text).toBe(' ▌ ') // an empty row again, cursor in its first tile
     await press('prove')
-    await clock.advance(3100) // the win screen covers the board for 3 seconds
+    await clock.advance(3100) // the win screen covers the board for 3 seconds, then the picker opens
+    await todaysBoard(pane, clock)
     expect(await scored(1)).toEqual(['P', 'R', 'O', 'V', 'E'].map(ch => `${ch}:${FILL.green}`))
     expect(await text()).toContain('SOLVED IN 2/6')
   })
@@ -105,7 +114,9 @@ test('stats count only today; an archived game is practice and today resumes', a
   // win today in two guesses
   await play('crane')
   await play('prove')
-  await clock.advance(3100) // the win screen covers the board for 3 seconds
+  await clock.advance(3100) // the win screen covers the board for 3 seconds, then the picker opens
+  await todaysBoard(pane, clock)
+  await pane.press({ key: 'stats-toggle' } as any)
   expect(await statsShown()).toContain('STREAK 01 BEST 01 WIN% 100')
   expect(await statsShown()).toContain('PLAYED 1 · WON 1')
 
@@ -115,15 +126,13 @@ test('stats count only today; an archived game is practice and today resumes', a
   await clock.settle()
   expect(await everything()).toContain('PRACTICE STAGE')
   await play('crane')
-  await clock.advance(3100)
-  expect(await everything()).toContain('SOLVED IN 1/6')
-  expect(await statsShown()).toContain('STREAK 01 BEST 01 WIN% 100')
-  expect(await statsShown()).toContain('PLAYED 1 · WON 1')
+  await clock.advance(3100) // its win also ends on the picker
+  expect(await everything()).toContain('PICK YOUR NEXT GAME')
+  expect(flat(await pane.find({ key: 'stats' } as any))).toContain('STREAK 01 BEST 01 WIN% 100')
 
   // back to today: the finished board is shown, not a blank one, and stats did not double count
-  await pane.press({ key: 'play-today' } as any)
-  await clock.settle()
-  await clock.settle()
+  await todaysBoard(pane, clock)
+  await pane.press({ key: 'stats-toggle' } as any)
   expect(await everything()).toContain('SOLVED IN 2/6')
   expect(await everything()).not.toContain('PRACTICE STAGE')
   expect(await statsShown()).toContain('PLAYED 1 · WON 1')
@@ -223,7 +232,8 @@ test('Clear stats needs two presses and resets the history', async ($, on) => {
 
   await pane.input({ key: 'guess', text: 'prove', kind: 'change' } as any)
   await pane.input({ key: 'guess', text: 'prove', kind: 'submit' } as any)
-  await clock.advance(3100) // past the win screen
+  await clock.advance(3100) // past the win screen, onto the picker
+  await todaysBoard(pane, clock)
   await pane.press({ key: 'stats-toggle' } as any) // Clear stats lives in the details
   expect(await shown()).toContain('STREAK 01 BEST 01 WIN% 100')
 
@@ -246,7 +256,7 @@ test('Clear stats needs two presses and resets the history', async ($, on) => {
   expect(await label()).toBe('CLEAR STATS')
 })
 
-test('winning swaps the board for a 3 second red celebration screen, then the board returns', async ($, on) => {
+test('winning swaps the board for a 3 second red celebration screen, then the picker opens', async ($, on) => {
   mock.store(on)
   const clock = mock.clock(on, { now: Date.parse('2026-10-07T12:00:00') })
   on('http.fetch', async () => ({ value: ok({ solution: SOLUTION }) }))
@@ -289,14 +299,13 @@ test('winning swaps the board for a 3 second red celebration screen, then the bo
   await clock.advance(300)
   expect(await screen()).toBeUndefined()
 
-  // the finished game board is back, in full
-  expect(await boardShown()).toBe(true)
-  expect(JSON.stringify(await pane.drawn())).toContain('SOLVED IN 2/6')
-  expect(await pane.find({ key: 'board' } as any)).toBeDefined() // the new walled board
-  expect((await tileAt(pane, 1, 0)).fill).toBe(FILL.green)
+  // then the picker opens on its own: no press needed
+  expect(await boardShown()).toBe(false)
+  expect(await pane.find({ key: 'card-random' } as any)).toBeDefined()
+  expect(flat(await pane.find({ key: 'today' } as any))).toBe('TODAY SOLVED 2/6')
 })
 
-test('the continue control on the win screen goes straight back to the board', async ($, on) => {
+test('the win screen has no skip: 1 does nothing, and it plays to the end', async ($, on) => {
   mock.store(on)
   const clock = mock.clock(on, { now: Date.parse('2026-10-07T12:00:00') })
   on('http.fetch', async () => ({ value: ok({ solution: SOLUTION }) }))
@@ -310,13 +319,14 @@ test('the continue control on the win screen goes straight back to the board', a
   await pane.input({ key: 'guess', text: 'prove', kind: 'submit' } as any)
   await clock.advance(500)
   expect(await pane.find({ key: 'fireworks' } as any)).toBeDefined()
+  expect(await pane.find({ key: 'skip-celebration' } as any)).toBeUndefined()
+  expect(JSON.stringify(await pane.drawn())).not.toContain('continue')
 
-  await pane.press({ key: 'skip-celebration' } as any)
-  expect(await pane.find({ key: 'fireworks' } as any)).toBeUndefined()
-  expect(JSON.stringify(await pane.drawn())).toContain('SOLVED IN 1/6')
-  // the stopped timer does not bring it back
+  await clock.advance(2000)
+  expect(await pane.find({ key: 'fireworks' } as any)).toBeDefined() // still playing
   await clock.advance(1000)
   expect(await pane.find({ key: 'fireworks' } as any)).toBeUndefined()
+  expect(await pane.find({ key: 'card-random' } as any)).toBeDefined()
 })
 
 test('MOCHA on a practice date: the winning letters are never painted over', async ($, on) => {
@@ -341,12 +351,9 @@ test('MOCHA on a practice date: the winning letters are never painted over', asy
   }
   await clock.advance(300)
 
-  // afterwards the winning row is intact: M O C H A
-  const row = await pane.find({ key: 'row0' } as any)
-  expect(row).toBeDefined()
-  const tree = JSON.stringify(await pane.drawn())
-  expect((await rowOf(pane, 0)).map(t => t.text.trim())).toEqual(['M', 'O', 'C', 'H', 'A'])
-  expect(tree).toContain('SOLVED IN 1/6')
+  // afterwards the picker opens on its own; the board is never drawn under a cover
+  expect(await pane.find({ key: 'fireworks' } as any)).toBeUndefined()
+  expect(await pane.find({ key: 'card-random' } as any)).toBeDefined()
 })
 
 // ---- V1: keyboard feedback, V2: offline word recovery, V3: end-of-game cue, V11: new day ----
@@ -462,15 +469,16 @@ test('1UP and HI-SCORE: 100 per guess left on a win; practice never sets the HI-
   expect(await header()).toBe('1UP 00000 HI 00000 STAGE 07 OCT')
   await play('crane')
   await play('prove') // won in 2: 4 guesses left
-  await clock.advance(3100)
-  expect(await header()).toBe('1UP 00400 HI 00400 STAGE 07 OCT')
+  await clock.advance(3100) // then the picker, whose header has no stage
+  expect(await header()).toBe('1UP 00400 HI 00400')
 
-  await pane.press({ key: 'stage-prev' } as any) // practice: won in 1
+  await pane.press({ key: 'pick-play' } as any) // practice, the newest past date (06 OCT): won in 1
   await clock.settle()
   await clock.settle()
+  expect(await header()).toBe('1UP 00000 HI 00400 STAGE 06 OCT')
   await play('crane')
   await clock.advance(3100)
-  expect(await header()).toBe('1UP 00500 HI 00400 STAGE 06 OCT')
+  expect(await header()).toBe('1UP 00400 HI 00400') // the picker's 1UP is today's; practice leaves HI alone
 })
 
 test('stage stepping: ◀ ▶ walk the last 14 days, ▶ TODAY jumps back', async ($, on) => {
@@ -588,7 +596,7 @@ test('V3: when the game is over the keyboard fades and the status line says what
   for (const word of ['crane', 'slate', 'brick', 'plumb', 'mocha', 'crane']) await play(word)
 
   expect(await text()).toContain('THE WORD WAS PROVE')
-  expect(await text()).toContain('◀ ▶ PICK ANOTHER STAGE')
+  expect(await text()).toContain('CONTINUE TO PICK A GAME')
   for (const key of ['k-q', 'k-z', 'enter', 'back']) expect((await pane.find({ key } as any))?.props.dimColor).toBe(true)
   expect(await pane.find({ key: 'guess' } as any)).toBeUndefined() // the field is gone
   expect(await pane.find({ key: 'stage-prev' } as any)).toMatchObject({ type: 'Button' }) // and the way to another day is right there
@@ -887,7 +895,7 @@ for (const [columns, bodyRows] of [
   [60, 14],
   [71, 42], // docked
 ] as const) {
-  test(`the win screen fits a ${columns}x${bodyRows} pane: its width, and no taller, so the continue row stays in view`, async ($, on) => {
+  test(`the win screen fits a ${columns}x${bodyRows} pane: its width, and no taller`, async ($, on) => {
     const { pane, clock } = await setupGame($, on)
     await pane.unmount()
     const ui = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: { bodyColumns: columns, scroll: { offset: 0, bodyRows } }, requestId: 'wordle' } as any)
@@ -896,8 +904,8 @@ for (const [columns, bodyRows] of [
     await clock.advance(500) // the red has opened out to the bottom row
     const screen = await ui.find({ key: 'fireworks' } as any)
     expect(screen?.props.width).toBe(columns)
-    expect(screen?.children.length).toBeLessThanOrEqual(bodyRows) // every row, the skip row last
-    expect(await ui.find({ key: 'skip-celebration' } as any)).toBeDefined()
+    expect(screen?.children.length).toBeLessThanOrEqual(bodyRows)
+    expect(await ui.find({ key: 'skip-celebration' } as any)).toBeUndefined()
   })
 }
 

@@ -49,6 +49,18 @@ declare module 'claude-code' {
       isStacked: boolean
       /** The body rows the pane had when it opened (null until its first draw); it stacks only once the room grows past them. Session only. */
       openRows: number | null
+      /** Which screen the pane shows: the game board, or the Pick a game screen. */
+      mode: 'game' | 'picker'
+      /** The date the picker's stepper was moved to (null: the newest date not played today). */
+      pickerDate: string | null
+      /** Which way the stepper last moved (-1 earlier, +1 later), for the "skips …" caption. */
+      pickerDir: -1 | 1
+      /** Mirror of the persisted `played-today` record: the dates whose game ended on `day`. */
+      playedToday: { day: string | null; dates: string[] }
+      /** Today's saved board once it is finished (the picker's header and 1UP); null otherwise. */
+      todayGame: WordleGame | null
+      /** The clock at the picker's last once-a-second tick; redraws the countdown. */
+      tick: number
     }
   }
 }

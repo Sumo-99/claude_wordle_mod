@@ -67,7 +67,40 @@ you solve it, 0 otherwise), **HI** is the best score in your stats, and
 **STAGE** is the puzzle's date. **LIVES** shows ◆ for each guess left and ◇
 for each used; **READY!** shows until your first guess.
 
-Solve the puzzle and the board gives way to a 3-second red celebration — it opens out from the centre with shockwaves, a red-and-gold burst, a turning sunburst and **WORDDDD... / you solved it!** — then comes back (press `1` or click *continue* to skip). `/wordle config reduce-motion on` swaps it for a plain fade.
+Solve the puzzle and the board gives way to a 3-second red celebration — it opens out from the centre with shockwaves, a red-and-gold burst, a turning sunburst and **WORDDDD... / you solved it!** — and it always plays to the end (there is no skip). Then the Pick a game screen opens. `/wordle config reduce-motion on` swaps it for a plain fade.
+
+### Pick a game
+
+Open the pane with today's puzzle finished (won or lost) and it opens the
+**Pick a game** screen instead of the board. The same screen follows every
+finished game, today's or practice, and it opens by itself. A win plays the
+whole celebration first. A loss shows `THE WORD WAS …` for 3 seconds (with
+**⏎ CONTINUE**, hotkey `1`, to go sooner). The keyboard lands on RANDOM GAME,
+so `1` and `2` work right away.
+
+The picker is the same compact frame (about 12 rows; the two cards stack
+when the pane is too narrow for them):
+
+- header: the badge, `TODAY SOLVED 4/6` (or `TODAY LOST · CRANE`), then `1UP` and `HI`
+- **⚄ RANDOM GAME** (hotkey `1`): a random date from 2021-06-19 to yesterday,
+  never today and never one you finished today. Under it, how many are left.
+  Played everything? It says *You've played every game today!* and starts the set over.
+- **PICK A DATE** (hotkey `2` plays the date shown): **◀ ▶** step through the same range, jumping
+  over dates you finished today (the caption names what the last step skipped). It starts on yesterday,
+  or the newest date you haven't played today.
+- `STREAK`, `BEST`, `WIN%`, and **NEXT DAILY IN HH:MM:SS** (it redraws every second, from a timer that
+  only runs while the picker is showing)
+- footer: **↺ TODAY'S BOARD** reopens today's board (a finished one is read-only, with CONTINUE back),
+  **DATE…** opens a typed-date field (today, future dates, dates before 2021-06-19 and dates you
+  finished today are rejected with a message), `ESC TO EXIT`.
+
+A date counts as played today only when its game ends, won or lost; one you
+leave halfway stays available and resumes where you left off. A past date you
+finished on an earlier day starts over with a fresh board. Random and picked
+games are practice and never touch your stats. The played-today set lives in the
+store as `{ day, dates }` and empties itself when the date changes.
+`config:random` (a number from 0 to under 1, set in the store) fixes
+RANDOM GAME's pick for repeatable testing; it is normally unset.
 
 ### Stats
 

@@ -18,6 +18,7 @@ export const PALETTE = {
   accent: '#d97757',
   pellet: '#e8a07c',
   keyIdle: '#2e2a26',
+  cardKey: '#34302b', // the picker's PICK A DATE card
   divider: '#3a3430',
   ready: '#f0b44c',
   lives: '#e8875f',

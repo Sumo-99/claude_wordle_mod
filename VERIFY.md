@@ -71,7 +71,7 @@ Where the history lives: the plugin's `$.store` — `board:<date>` (each saved g
 ## Win celebration (added after stage 07)
 - [ ] Win a puzzle: red opens out **from the centre** to fill the whole pane (bright red middle, dark red edges, slowly turning rays), with 2–3 rings and a red/gold burst at the start. **WORDDDD...** pops in letter by letter (the extra Ds bounce), the screen gives a small shake, then **you solved it!** slides up with a pulsing glow. About **3 seconds**, then the finished board comes back (with "Solved in N/6").
 - [ ] While it plays you see no board, keyboard, or Guess field. If the red doesn't fill the pane (a gap at the bottom or right) or isn't centred, tell me your terminal size and which surface.
-- [ ] Win again (a practice date) and press `1` or click **continue** on the bottom row: the board comes back at once.
+- [ ] ~~Win again and press `1` to skip~~ (stage 10 removed the skip: the celebration always plays to the end).
 - [ ] `/wordle config reduce-motion on`, then win a practice date: no rings, sparks or shake, the red just fades in with the words. `/wordle config reduce-motion off` restores the full version.
 - [ ] **The 5 Oct / MOCHA bug**: pick 2026-10-05 in the Day list, type MOCHA, press Enter. After the celebration the winning row shows all five letters M O C H A. If a letter is missing, tell me exactly when it disappears (before the celebration starts, during it, or after).
 - [ ] The animation does not play on a loss, on a wrong guess, or when you reopen an already-finished board; it does play for a practice-day win.
@@ -146,7 +146,7 @@ Stats, stages, dates:
 
 Celebration:
 - [ ] Win a puzzle: the red celebration plays as before, then hands back to the **new** board (`SOLVED IN N/6`, colored tiles).
-- [ ] The red now fills the pane's width, and in an ordinary-height terminal (about 100×60) the **`1: continue`** row is visible on its bottom row, not cut off. Docked (fullscreen, 110+ columns) it also shows.
+- [ ] The red now fills the pane's width, and in an ordinary-height terminal (about 100×60) the **`1: continue`** row is visible on its bottom row, not cut off. Docked (fullscreen, 110+ columns) it also shows. (Stage 10 removed that row: the celebration has no skip now.)
 
 Sizes:
 - [ ] ~100 columns in a tall pane (docked fullscreen ≥110 columns, or a very tall terminal): the full reference layout.
@@ -187,3 +187,25 @@ Playing (as in stage 08): typing, Backspace, Enter, clicking chips and the `⏎ 
 Desktop app (Code tab), same pane:
 - [ ] The `round` frame, the vertical divider and the filled chips draw correctly (a native button sits inside each chip: note how it looks and that clicks land).
 - [ ] The 12-row height holds; note any difference from the terminal.
+
+## Stage 10 — Pick a game screen and replay flow
+Reference: `docs/ui-ref/wordle-picker.png`. Same frame, header and palette as stage 09; gameplay, stats and the celebration are unchanged. Contract: `plan/stages/10_game_picker/CONTEXT.md`.
+
+What was decided: the countdown redraws **every second** (the pane is a dozen rows, so that is cheap), from a timer that runs only while the picker is the screen. A plain Button's label can't be colored, so `1: play` / `2: play` keep the default text color on the card fills (the reference shows dark text on the orange).
+
+Setup: a fresh store, or `/wordle config reset-history confirm` (it clears saved boards, cached words and the played-today set).
+
+- [ ] **Today's win**: with today unfinished the pane opens on the game. Win it and don't touch anything. The whole celebration plays: there is no `1: continue` on it, and pressing `1` doesn't cut it short. When it ends, the picker opens by itself, with header `TODAY SOLVED N/6` and `1UP` showing the score. Press `1` right away: a random game starts (the keyboard is on RANDOM GAME, not Claude's prompt).
+- [ ] **Today's loss** (reset history first): six wrong guesses show `THE WORD WAS …` and CONTINUE, no celebration. About 3 seconds later the picker opens by itself (or sooner with CONTINUE). The picker header reads `TODAY LOST · WORD` in amber. Close and reopen `/wordle`: it opens the picker, not the board.
+- [ ] **Layout** (compare with the reference): about 12 rows at 78 columns; two cards side by side (orange RANDOM GAME with `⚄`, dark PICK A DATE with a date dropdown), pixel-rounded corners (`▗▄▄▖` / `▝▀▀▘`); `STREAK / BEST / WIN%` left, `NEXT DAILY IN HH:MM:SS` right in amber, ticking each second. At about 60 columns the cards stack.
+- [ ] **Three random games in a row**: press RANDOM GAME (or `1`), finish it (win or lose), and let the picker come back by itself. Repeat three times. The three dates differ, none is today, and the `N left` count drops by one each time.
+- [ ] **Date dropdown**: after those games, the dropdown on PICK A DATE starts on yesterday (or the newest date not played) and lists the 14 newest dates you haven't finished today, newest first. Dates you finished today never appear, and the caption reads `played today are left out`. Picking a date only selects it; `2` (or clicking play) plays it. Older dates are behind `DATE…`.
+- [ ] **A rejected typed date**: `DATE…`, then try today's date, a date next week, `2021-06-18`, and a date you finished today. Each shows its own one-line message, the field stays open, and no game starts. A valid date plays and closes the field.
+- [ ] **Leave a game halfway and resume it**: start a random game, make one guess, then leave it (`▶ TODAY` on its footer, then CONTINUE). Its date is still unplayed: it can come up from RANDOM or the dropdown, and opening it shows your guess.
+- [ ] **Replay**: pick a date you finished on an earlier day (or one finished before today): it starts a fresh empty board.
+- [ ] **↺ TODAY'S BOARD** on the picker reopens today's finished board, read-only (no typing field), with `⏎ CONTINUE` back to the picker.
+- [ ] **Stats**: after the practice games above, `STREAK / BEST / WIN%` are unchanged (only today's daily counts).
+- [ ] **Offline**: with the network off, a random or picked date opens an `⚠ OFFLINE` puzzle on the game screen's header.
+- [ ] **Day rollover** (fake the clock: set the system clock to 23:59:50 on the day you played, or run the pane with a test clock): the countdown reaches 00:00:00, the header turns to `TODAY NOT FINISHED`, the `N left` count returns to the whole pool, and the played-today set is empty (`played-today` in the store shows the new day).
+- [ ] **Every game played**: (hard to reach by hand; the automated test covers it) RANDOM GAME says *You've played every game today!* and the count is whole again.
+- [ ] Desktop app (Code tab): the card blocks, the fills and `1: play` / `2: play` draw correctly; note any difference from the terminal.

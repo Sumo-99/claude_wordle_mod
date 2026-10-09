@@ -2,6 +2,7 @@ import { recentDates } from './archive.js'
 import { gameScore, hiScore, keyLook, livesText, pad, PALETTE, stageLabel, stepStage, tileLook } from './arcade.js'
 import { celebrationRows, MIN_COLUMNS, MIN_ROWS } from './fireworks.js'
 import { MAX_GUESSES, WORD_LENGTH } from './game-engine.js'
+import { formatCount, longDate, nextDailyIn, recentUnplayed, remaining } from './picker.js'
 import { winPercent } from './stats.js'
 
 export const FALLBACK_NOTE = "Couldn't reach the live word — showing an offline puzzle instead."
@@ -32,31 +33,17 @@ export const keyStates = game => {
   return states
 }
 
-// The skip control, drawn plain (`1: continue`) on the bottom row of the red.
-const SKIP_LABEL = 'continue'
-const SKIP_TEXT = `${ENTER_KEY}: ${SKIP_LABEL}`
-
-/** The runs covering columns [from, to) of a row, cut at the ends. */
-const sliceRuns = (runs, from, to) => {
-  const out = []
-  let x = 0
-  for (const run of runs) {
-    const text = run.text.slice(Math.max(0, from - x), Math.max(0, to - x))
-    if (text) out.push({ ...run, text })
-    x += run.text.length
-  }
-
-  return out
-}
+// The finished board's control: opens the picker (a lost board also opens it on its own after a moment).
+const CONTINUE_LABEL = '⏎ CONTINUE'
 
 /**
  * The win screen: while it runs it REPLACES the board. Every cell of the pane is
  * painted by `celebrationRows` (a red radial gradient with a turning sunburst,
- * opening out from the centre, the burst and the words on top), and the bottom
- * row holds a control that ends it early. When the frames run out the board
- * comes back. `screen` is `{ columns, rows }`, the room the pane has.
+ * opening out from the centre, the burst and the words on top). It has no control:
+ * it always plays to the end, and then the picker opens. `screen` is
+ * `{ columns, rows }`, the room the pane has.
  */
-const celebrationScreen = (h, Box, Text, Button, frame, screen, reducedMotion, on) => {
+const celebrationScreen = (h, Box, Text, frame, screen, reducedMotion) => {
   const columns = Math.max(MIN_COLUMNS, screen.columns)
   const rows = celebrationRows(frame, { columns, rows: Math.max(MIN_ROWS, screen.rows) }, reducedMotion)
   const drawRow = (runs, y) =>
@@ -65,26 +52,11 @@ const celebrationScreen = (h, Box, Text, Button, frame, screen, reducedMotion, o
       { key: `fw${y}`, flexDirection: 'row' },
       ...runs.map((run, i) => h(Text, { key: i, color: run.color, bold: run.bold, backgroundColor: run.backgroundColor }, run.text)),
     )
-  // the skip control sits centred in the last row, the gradient carrying on either side of it
-  const last = rows.pop()
-  const from = Math.floor((columns - SKIP_TEXT.length) / 2)
-  const isRed = last.some(run => run.backgroundColor)
-  const skipRow = isRed
-    ? h(
-        Box,
-        { key: 'fw-skip', flexDirection: 'row' },
-        ...sliceRuns(last, 0, from).map((run, i) => h(Text, { key: `l${i}`, backgroundColor: run.backgroundColor }, run.text)),
-        h(Button, { key: 'skip-celebration', label: SKIP_LABEL, hotkey: ENTER_KEY, plain: true, onPress: () => on.skipCelebration() }),
-        ...sliceRuns(last, from + SKIP_TEXT.length, columns).map((run, i) =>
-          h(Text, { key: `r${i}`, backgroundColor: run.backgroundColor }, run.text),
-        ),
-      )
-    : drawRow(last, rows.length)
 
   return h(
     Box,
     { key: 'fireworks-wrap', flexDirection: 'column', alignItems: 'center' },
-    h(Box, { key: 'fireworks', flexDirection: 'column', width: columns }, ...rows.map(drawRow), skipRow),
+    h(Box, { key: 'fireworks', flexDirection: 'column', width: columns }, ...rows.map(drawRow)),
   )
 }
 
@@ -346,7 +318,7 @@ const controls = (h, ui, view, metrics, fit, on) => {
     // letter, Enter submits); the chips feed the same draft. It sits where the reference
     // has a blank row, so the pane is no taller for it.
     isOver
-      ? h(Box, { key: 'no-field', height: 1 })
+      ? h(Box, { key: 'no-field', height: 1 }, h(Button, { key: 'continue', label: CONTINUE_LABEL, hotkey: ENTER_KEY, plain: true, onPress: () => on.continue() }))
       : h(Input, {
           key: 'guess',
           label: 'TYPE',
@@ -479,19 +451,149 @@ const dateDrawer = (h, Box, Text, Input, Select, { puzzle, today }, on) => {
   )
 }
 
+// ---- the Pick a game screen (docs/ui-ref/wordle-picker.png) ----
+
+const CARD_MIN = 28 // the narrowest a card can be: ◀ 08 OCT 2026 ▶ 2: play
+const CARD_MAX = 32
+const CARD_GAP = 4
+
+/** A pixel-rounded block: ▗▄▄▖ over `rows` on a `fill` over ▝▀▀▘. */
+const card = (h, Box, Text, key, width, fill, ...rows) =>
+  h(
+    Box,
+    { key, flexDirection: 'column', width },
+    h(Text, { color: fill }, `▗${'▄'.repeat(width - 2)}▖`),
+    ...rows.map((row, i) => h(Box, { key: `${key}-r${i}`, width, backgroundColor: fill, ...row.box }, ...row.children)),
+    h(Text, { color: fill }, `▝${'▀'.repeat(width - 2)}▘`),
+  )
+
+/** The header's "TODAY …" piece: how today's daily ended. */
+const todaySummary = (h, Text, game) => {
+  if (game?.status === 'won') {
+    return [h(Text, { key: 't0', color: PALETTE.title, bold: true }, 'TODAY'), h(Text, { key: 't1', color: PALETTE.correct, bold: true }, `SOLVED ${game.guesses.length}/${MAX_GUESSES}`)]
+  }
+  if (game?.status === 'lost') {
+    return [h(Text, { key: 't0', color: PALETTE.title, bold: true }, 'TODAY'), h(Text, { key: 't1', color: PALETTE.present, bold: true }, `LOST · ${game.answer.toUpperCase()}`)]
+  }
+
+  return [h(Text, { key: 't0', color: PALETTE.title, bold: true }, 'TODAY'), h(Text, { key: 't1', color: PALETTE.dim, bold: true }, 'NOT FINISHED')]
+}
+
+/**
+ * The Pick a game screen, about 12 rows in the game screen's frame: header, a
+ * round frame (title, two cards with a caption under each, streak and countdown), footer.
+ * `view.picker` is `{ todayGame, played, date, dir, now }`: today's saved board, the dates
+ * finished today, the stepper's date (already moved past played ones) and the way it last moved, and the clock.
+ */
+const pickerScreen = (ui, view, on) => {
+  const { h, Box, Text, Button, Input, Select } = ui
+  const { today, stats, isDateEntryOpen, layout } = view
+  const { todayGame, played, date, now } = view.picker
+  const width = Math.min(layout.columns, COMPACT_WIDTH)
+  const inner = width - FRAME_BORDER
+  const isSideBySide = inner >= CARD_MIN * 2 + CARD_GAP
+  const cardWidth = isSideBySide ? Math.min(CARD_MAX, Math.floor((inner - CARD_GAP) / 2)) : Math.min(inner, CARD_MAX)
+  // the dropdown: the newest dates not finished today (an older one is behind DATE…)
+  const dates = recentUnplayed(today, played)
+  const options = (dates.length > 0 ? dates : [date]).map(d => ({ value: d, label: longDate(d) }))
+
+  const random = card(h, Box, Text, 'card-random', cardWidth, PALETTE.accent,
+    { box: { justifyContent: 'center' }, children: [h(Text, { key: 'dice', color: PALETTE.background, backgroundColor: PALETTE.accent, bold: true }, '⚄ RANDOM GAME')] },
+    { box: { justifyContent: 'center' }, children: [h(Button, { key: 'random', label: 'play', hotkey: '1', plain: true, onPress: () => on.randomGame() })] },
+  )
+  const pick = card(h, Box, Text, 'card-pick', cardWidth, PALETTE.cardKey,
+    { box: { paddingX: 2 }, children: [h(Text, { key: 'pick-title', color: PALETTE.text, bold: true }, 'PICK A DATE')] },
+    {
+      box: { paddingX: 2, columnGap: 1 },
+      children: [
+        h(Select, { key: 'pick-date', options, value: date, onSelect: value => on.choosePickerDate(value) }),
+        h(Button, { key: 'pick-play', label: 'play', hotkey: '2', plain: true, onPress: () => on.playPicked() }),
+      ],
+    },
+  )
+  const left = remaining(today, played)
+  const caption = (key, align, text) =>
+    h(Box, { key, width: cardWidth, justifyContent: align }, h(Text, { color: PALETTE.dim }, text || ' '))
+  const randomCaption = caption('caption-random', 'center', `${formatCount(left)} left · never today's`)
+  const pickCaption = caption('caption-pick', 'center', played.length > 0 ? 'played today are left out' : 'older dates: DATE…')
+  const cards = isSideBySide
+    ? h(Box, { key: 'cards', flexDirection: 'column', alignItems: 'center' },
+        h(Box, { key: 'cards-row', flexDirection: 'row', columnGap: CARD_GAP }, random, pick),
+        h(Box, { key: 'captions-row', flexDirection: 'row', columnGap: CARD_GAP }, randomCaption, pickCaption))
+    : h(Box, { key: 'cards', flexDirection: 'column', alignItems: 'center' }, random, randomCaption, pick, pickCaption)
+
+  return h(
+    Box,
+    { key: 'pane', width: layout.columns, alignItems: 'center' },
+    h(
+      Box,
+      { key: 'layout', flexDirection: 'column', width, backgroundColor: PALETTE.background },
+      h(
+        Box,
+        { key: 'header', flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', columnGap: HEADER_GAP },
+        h(Box, { key: 'header-left', flexDirection: 'row', columnGap: HEADER_GAP }, badge(h, Box, Text), h(Box, { key: 'today', flexDirection: 'row', gap: 1 }, ...todaySummary(h, Text, todayGame))),
+        h(
+          Box,
+          { key: 'header-right', flexDirection: 'row', columnGap: HEADER_CELL_GAP },
+          headerCell(h, Box, Text, 'score', '1UP', pad(gameScore(todayGame), 5)),
+          headerCell(h, Box, Text, 'hi-score', 'HI', pad(hiScore(stats), 5)),
+        ),
+      ),
+      h(
+        Box,
+        { key: 'frame', flexDirection: 'column', borderStyle: 'round', borderColor: PALETTE.walls, backgroundColor: PALETTE.panel },
+        h(Box, { key: 'title', justifyContent: 'center' }, h(Text, { color: PALETTE.dim, bold: true }, 'PICK YOUR NEXT GAME')),
+        h(Text, { key: 'gap' }, ' '),
+        cards,
+        h(
+          Box,
+          { key: 'stats', flexDirection: 'row', justifyContent: 'space-between', flexWrap: 'wrap', paddingX: 2 },
+          h(
+            Box,
+            { key: 'stats-left', flexDirection: 'row', columnGap: 2 },
+            statPair(h, Box, Text, 'streak', 'STREAK', PALETTE.streak, pad(stats.currentStreak, 2)),
+            statPair(h, Box, Text, 'best', 'BEST', PALETTE.best, pad(stats.maxStreak, 2)),
+            statPair(h, Box, Text, 'win', 'WIN%', PALETTE.winPercent, pad(winPercent(stats), 2)),
+          ),
+          h(Text, { key: 'countdown', color: PALETTE.present, bold: true }, `NEXT DAILY IN ${nextDailyIn(now)}`),
+        ),
+      ),
+      h(
+        Box,
+        { key: 'footer', flexDirection: 'row' },
+        h(Button, { key: 'todays-board', label: "↺ TODAY'S BOARD", plain: true, dimColor: true, onPress: () => on.openToday() }),
+        h(Text, { key: 'f0', color: PALETTE.dim }, ' · '),
+        h(Button, { key: 'date-entry', label: isDateEntryOpen ? '▴ DATE…' : 'DATE…', plain: true, dimColor: true, onPress: () => on.toggleDateEntry() }),
+        h(Text, { key: 'f1', color: PALETTE.dim }, ' · ESC TO EXIT'),
+      ),
+      isDateEntryOpen &&
+        drawer(
+          h,
+          Box,
+          Text,
+          'date-drawer',
+          'PICK A DATE',
+          h(Input, { key: 'archive-date', label: 'A date', placeholder: 'YYYY-MM-DD', submitLabel: 'play', onSubmit: text => on.pickDate(text) }),
+          h(Text, { color: PALETTE.dim }, 'ANY DAY FROM 2021-06-19 UP TO YESTERDAY, NOT ONE YOU FINISHED TODAY · PRACTICE GAMES DON’T COUNT TOWARD YOUR STATS'),
+        ),
+    ),
+  )
+}
+
 /**
  * The pane's tree for one game state. Pure: the caller supplies the element
  * factory `h`, the surface's elements, and the press callbacks, so this file
  * never touches the engine's `$`.
  *
  * @param ui `{ h, Box, Text, Button, Input, Select }`
- * @param view `{ game, draft, puzzle, today, stats, isStatsOpen, isConfirmingClear, isDateEntryOpen, isFieldBlanked, celebrationFrame, isMotionReduced, screen, layout }`; `celebrationFrame` >= 0 shows the win screen instead of the board; `screen` is `{ columns, rows }`, the win screen's size; `layout` is `{ columns, rows, isStacked }`: the pane body's width, which sizes the tiles and chips, its rows (when known), which the compact layout fits (see `compactFit`), and whether to stack (see `isStackedLayout`); `game` null means still loading
- * @param on `{ letter(ch), enter(), backspace(), input(text), pickDate(date), stepStage(dir), toggleStats(), toggleDateEntry(), clearStats(), fallbackInfo(), skipCelebration() }`
+ * @param view `{ game, draft, puzzle, today, stats, isStatsOpen, isConfirmingClear, isDateEntryOpen, isFieldBlanked, celebrationFrame, isMotionReduced, screen, layout }`; `celebrationFrame` >= 0 shows the win screen instead of the board; `screen` is `{ columns, rows }`, the win screen's size; `layout` is `{ columns, rows, isStacked }`: the pane body's width, which sizes the tiles and chips, its rows (when known), which the compact layout fits (see `compactFit`), and whether to stack (see `isStackedLayout`); `game` null means still loading; `mode` 'picker' (with `picker` `{ todayGame, played, date, dir, now }`) draws the Pick a game screen instead of the board
+ * @param on `{ letter(ch), enter(), backspace(), input(text), pickDate(date), stepStage(dir), toggleStats(), toggleDateEntry(), clearStats(), fallbackInfo(), continue(), choosePickerDate(date), randomGame(), playPicked(), openToday() }`
  */
 export const renderBoard = (ui, view, on) => {
   const { h, Box, Text, Button, Input, Select } = ui
   const { game, draft, puzzle, today, stats, isStatsOpen, isConfirmingClear, isDateEntryOpen, celebrationFrame, isMotionReduced, screen, layout } = view
-  if (celebrationFrame >= 0) return celebrationScreen(h, Box, Text, Button, celebrationFrame, screen, isMotionReduced, on)
+  if (celebrationFrame >= 0) return celebrationScreen(h, Box, Text, celebrationFrame, screen, isMotionReduced)
+  if (view.mode === 'picker' && view.picker) return pickerScreen(ui, view, on)
   if (!game) {
     return h(Box, { flexDirection: 'column', backgroundColor: PALETTE.background }, h(Text, { color: PALETTE.dim }, 'LOADING TODAY’S STAGE…'))
   }
@@ -503,7 +605,7 @@ export const renderBoard = (ui, view, on) => {
   const isOver = game.status !== 'playing'
   const date = puzzle?.date ?? today
   const [typeToPlay, enterLabel, dot, deleteLabel, escToExit] = HINT_PARTS
-  const overHint = '◀ ▶ PICK ANOTHER STAGE · ESC TO EXIT'
+  const overHint = 'CONTINUE TO PICK A GAME · ESC TO EXIT'
   const todayLabel = date !== today ? '▶ TODAY' : null
   const dateLabel = isDateEntryOpen ? '▴ DATE…' : 'DATE…'
   const statsLabel = isStatsOpen ? '▴ LESS' : '▾ MORE'
