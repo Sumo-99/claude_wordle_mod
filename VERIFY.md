@@ -159,3 +159,23 @@ Desktop app (Code tab), same pane:
 - [ ] Half-block title and tiles join up (no gaps between rows of `▀▄`).
 - [ ] Keys are native buttons inside the frames: note how they look and whether clicks still land.
 - [ ] Anything that renders differently from the terminal: note it here.
+
+## Stage 09 — compact layout (panel 1, "Filled chips")
+Reference: panel 1 of `docs/ui-ref/wordle-compact-options.png`. Layout only: palette, rules, word source, stats, archive and celebration are unchanged. The stage 08 "Sizes" and block-title items above are superseded by this list.
+
+Terminal, about 78 columns:
+- [ ] The pane is about 12 rows: one header row, the rounded frame (8 body rows + 2 border rows), one hint row.
+- [ ] Header: the `▐ W O R D L E ▌` badge on the left; `1UP 00000  HI 00000  STAGE 08 OCT` on the right.
+- [ ] Inside the frame: the board (six 3×1 tile rows, no blank rows between them) on the left, a faint `│` line, then the controls on the right — side by side, not stacked.
+- [ ] Controls: `READY!` / `GUESS N OF 6` / `LIVES`, the `TYPE` field, three rows of filled key chips (⏎ orange, ⌫ gray), a blank row, `STREAK BEST WIN% STAGE ◀ 08 OCT`.
+- [ ] Hint line: `TYPE TO PLAY · 1: ENTER · 2: DELETE · ESC TO EXIT` on the left, `▾ MORE` and `DATE…` on the right (`▶ TODAY` too, on another day).
+
+Playing:
+- [ ] Type a guess, click chips (letters, ⏎, ⌫), and use `1` / `2` with the focus off the field.
+- [ ] `◀ ▶` step days (PRACTICE STAGE appears beside the badge); `▶ TODAY` comes back.
+- [ ] `▾ MORE` adds one row (PLAYED/WON, CLEAR STATS) plus the distribution under the hint line; `DATE…` adds the date field.
+- [ ] Win once: the celebration plays, then hands back to the compact board.
+
+Sizes and surfaces:
+- [ ] About 60 columns: the controls stack under the board; nothing overlaps.
+- [ ] Desktop app (Code tab): the same checks; note anything that renders differently.

@@ -341,12 +341,9 @@ export const register = on => {
         columns: e.props?.bodyColumns ?? e.viewport?.columns ?? 40,
         rows: Math.min(26, e.props?.scroll?.bodyRows ?? Math.max(12, (e.viewport?.rows ?? 30) - 6)),
       },
-      // the board's room, which picks its layout: the Pane's own `bodyColumns` and
-      // `scroll.bodyRows` (the room's rows), which this build hands over under `e.props`
-      layout: {
-        columns: e.props?.bodyColumns ?? e.viewport?.columns ?? 40,
-        rows: e.props?.scroll?.bodyRows,
-      },
+      // the board's width, which picks side by side or stacked (this build hands the
+      // Pane's size over under `e.props`)
+      layout: { columns: e.props?.bodyColumns ?? e.viewport?.columns ?? 78 },
     }
 
     if (!view.game && !isLoading) {

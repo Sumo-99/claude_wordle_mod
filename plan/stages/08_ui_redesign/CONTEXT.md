@@ -1,5 +1,10 @@
 # 08_ui_redesign — the arcade "Claude night" pane
 
+> **Layout superseded by `../09_compact_layout/`.** The palette and the
+> platform findings below still hold; the block-letter title, the 5×3 tiles,
+> the double-line key frames and the density tiers were replaced by the
+> compact ~12-row layout.
+
 One job: redraw the Wordle pane to match `docs/ui-ref/wordle-ui-final.png`
 (the source of truth; `docs/ui-ref/wordle-key-styles.png` option 5 shows the
 key style alone). This changes how the pane LOOKS, never how the game plays:

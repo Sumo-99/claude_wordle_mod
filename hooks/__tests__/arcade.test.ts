@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { blockTitle, gameScore, hiScore, keyLook, livesText, PALETTE, stageLabel, stepStage, tileLook } from '../lib/arcade.js'
+import { gameScore, hiScore, keyLook, livesText, PALETTE, stageLabel, stepStage, tileLook } from '../lib/arcade.js'
 
 const game = (status: string, n: number) => ({ answer: 'prove', status, guesses: Array.from({ length: n }, () => ({ word: 'crane', score: [] })) }) as any
 
@@ -52,20 +52,9 @@ test('tiles: green and amber fills with a background-colored letter; a miss is d
   expect(tileLook('gray')).toEqual({ fill: PALETTE.miss, letter: PALETTE.dim })
 })
 
-test('keys: framed by best known state; a known miss is eaten', () => {
-  expect(keyLook('green')).toEqual({ border: PALETTE.correct })
-  expect(keyLook('yellow')).toEqual({ border: PALETTE.present })
-  expect(keyLook(undefined)).toEqual({ border: '#5a524a' })
+test('keys: chips filled by best known state; a known miss is eaten', () => {
+  expect(keyLook('green')).toEqual({ fill: PALETTE.correct })
+  expect(keyLook('yellow')).toEqual({ fill: PALETTE.present })
+  expect(keyLook(undefined)).toEqual({ fill: '#2e2a26' })
   expect(keyLook('gray')).toEqual({ isEaten: true })
-})
-
-test('the block title is four half-block rows, one column between letters', () => {
-  const rows = blockTitle()
-  expect(rows).toHaveLength(4)
-  for (const row of rows) {
-    expect(row).toHaveLength(6 * 5 + 5)
-    expect(row).toMatch(/^[ ▀▄█]+$/)
-  }
-  // W's outer strokes run the full height
-  expect(rows.map(r => r[0]).join('')).toBe('███▀')
 })

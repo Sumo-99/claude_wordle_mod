@@ -1,4 +1,4 @@
-import { blockTitle, gameScore, hiScore, keyLook, livesText, pad, PALETTE, stageLabel, stepStage, tileLook } from './arcade.js'
+import { gameScore, hiScore, keyLook, livesText, pad, PALETTE, stageLabel, stepStage, tileLook } from './arcade.js'
 import { celebrationRows, MIN_COLUMNS, MIN_ROWS } from './fireworks.js'
 import { MAX_GUESSES, WORD_LENGTH } from './game-engine.js'
 import { winPercent } from './stats.js'
@@ -87,62 +87,31 @@ const celebrationScreen = (h, Box, Text, Button, frame, screen, reducedMotion, o
   )
 }
 
-// ---- the arcade board (docs/ui-ref/wordle-ui-final.png) ----
+// ---- the compact arcade board (docs/ui-ref/wordle-compact-options.png, panel 1) ----
 
-const TILE = 5 // columns per tile and per key; a tile is 3 rows tall
-const WIDE_KEY = 6 // ⏎ and ⌫: their hotkey draws in front of the glyph (`1: ⏎`)
+const TILE = 3 // columns per tile and per key chip; both are one row tall
 const BOARD_WIDTH = WORD_LENGTH * TILE + (WORD_LENGTH - 1)
-const KEYBOARD_WIDTH = KEY_ROWS[0].length * TILE
+const KEYBOARD_WIDTH = KEY_ROWS[0].length * (TILE + 1) - 1
 const LEFT_PAD = 2
-const RIGHT_PAD = 1
-const LEFT_PANEL = BOARD_WIDTH + 2 + LEFT_PAD * 2 // + the double walls
-const RIGHT_PANEL = KEYBOARD_WIDTH + 2 + RIGHT_PAD * 2
-/** Below this many columns the controls panel drops under the board. */
-export const SIDE_BY_SIDE_MIN = LEFT_PANEL + 1 + RIGHT_PANEL
-/** Below this many columns the block-letter title becomes a plain bold WORDLE. */
-export const BLOCK_TITLE_MIN = 70
-const BAR_WIDTH = 10
+const LEFT_COL = BOARD_WIDTH + LEFT_PAD * 2
+const RIGHT_PAD = 2
+const RIGHT_COL = 45 + RIGHT_PAD * 2 // the widest right-hand row (stats and stage) plus its padding
+const FRAME_PADDING = 1 // blank rows above and below the board inside the frame
+/** From this many columns the controls sit beside the board; narrower, under it. */
+export const SIDE_BY_SIDE_MIN = 2 + LEFT_COL + 1 + RIGHT_COL
+const MAX_WIDTH = 78
+const BAR_WIDTH = 4
 
-/**
- * How much the pane's height lets the board spread out, from `scroll.bodyRows`
- * (unknown is roomy): `full` is the reference; `snug` drops the blank rows
- * (between tile rows, inside the walls, around the title); `tight` also
- * flattens each tile to its one middle row and the title and header to one row
- * each. The rows each needs, side by side and stacked, were measured live.
- */
-const ROWS_NEEDED = { sideBySide: { full: 38, snug: 27 }, stacked: { full: 63, snug: 46 } }
-export const densityFor = (rows, isSideBySide) => {
-  const need = ROWS_NEEDED[isSideBySide ? 'sideBySide' : 'stacked']
+/** One tile: 3 columns, one row, ` X ` on a fill. A letterless tile is just the fill. */
+const tile = (h, Box, Text, key, fill, letter, color) =>
+  h(Box, { key, width: TILE }, h(Text, { color, backgroundColor: fill, bold: true }, ` ${letter} `))
 
-  return rows == null || rows >= need.full ? 'full' : rows >= need.snug ? 'snug' : 'tight'
-}
-
-/**
- * One tile: 5 columns × 3 rows, pixel-rounded (▗▄▄▄▖ / a solid middle / ▝▀▀▀▘)
- * in `fill`, with `middle` (5 columns) drawn in `color` across the fill. A flat
- * tile (short panes) is the middle row alone.
- */
-const tile = (h, Box, Text, isFlat, key, fill, middle, color) =>
-  h(
-    Box,
-    { key, flexDirection: 'column', width: TILE },
-    !isFlat && h(Text, { color: fill }, '▗▄▄▄▖'),
-    h(Text, { color, backgroundColor: fill, bold: true }, middle),
-    !isFlat && h(Text, { color: fill }, '▝▀▀▀▘'),
-  )
-
-/** A spot with no tile yet: a pellet in the middle row (`●`, a power pellet, in the last row's corners). */
-const pellet = (h, Box, Text, isFlat, key, glyph) =>
-  h(
-    Box,
-    { key, flexDirection: 'column', width: TILE },
-    !isFlat && h(Text, null, ' '.repeat(TILE)),
-    h(Text, { color: PALETTE.pellet }, `  ${glyph}  `),
-    !isFlat && h(Text, null, ' '.repeat(TILE)),
-  )
+/** A spot with no tile yet: a pellet (`●`, a power pellet, in the last row's corners). */
+const pellet = (h, Box, Text, key, glyph) =>
+  h(Box, { key, width: TILE }, h(Text, { color: PALETTE.pellet }, ` ${glyph} `))
 
 /** Row `r` of the board: scored tiles, the row being typed (with its ▌ cursor), or pellets. */
-const tileRow = (h, Box, Text, isFlat, game, draft, r) => {
+const tileRow = (h, Box, Text, game, draft, r) => {
   const played = game.guesses[r]
   const isActive = r === game.guesses.length && game.status === 'playing'
   const cells = Array.from({ length: WORD_LENGTH }, (_, i) => {
@@ -150,28 +119,24 @@ const tileRow = (h, Box, Text, isFlat, game, draft, r) => {
     if (played) {
       const look = tileLook(played.score[i])
 
-      return tile(h, Box, Text, isFlat, key, look.fill, `  ${played.word[i].toUpperCase()}  `, look.letter)
+      return tile(h, Box, Text, key, look.fill, played.word[i].toUpperCase(), look.letter)
     }
-    if (isActive && draft[i]) return tile(h, Box, Text, isFlat, key, PALETTE.active, `  ${draft[i].toUpperCase()}  `, PALETTE.text)
-    if (isActive && i === draft.length) return tile(h, Box, Text, isFlat, key, PALETTE.active, '  ▌  ', PALETTE.accent)
-    if (isActive) return tile(h, Box, Text, isFlat, key, PALETTE.active, ' '.repeat(TILE), PALETTE.text)
+    if (isActive && draft[i]) return tile(h, Box, Text, key, PALETTE.active, draft[i].toUpperCase(), PALETTE.text)
+    if (isActive && i === draft.length) return tile(h, Box, Text, key, PALETTE.active, '▌', PALETTE.accent)
+    if (isActive) return tile(h, Box, Text, key, PALETTE.active, ' ', PALETTE.text)
     const isPower = r === MAX_GUESSES - 1 && (i === 0 || i === WORD_LENGTH - 1)
 
-    return pellet(h, Box, Text, isFlat, key, isPower ? '●' : '•')
+    return pellet(h, Box, Text, key, isPower ? '●' : '•')
   })
 
   return h(Box, { key: `row${r}`, flexDirection: 'row', gap: 1 }, ...cells)
 }
 
-/** A key in double-line walls; only the walls can be colored (a Button's label can't). */
-const framedKey = (h, Box, Button, { boxKey, border, width = TILE }, button) =>
-  h(
-    Box,
-    { key: boxKey, borderStyle: 'double', borderColor: border, width, height: 3, justifyContent: 'center' },
-    h(Button, { plain: true, ...button }),
-  )
+/** A key chip: a filled 3×1 Box holding a plain Button (a Button's label can't be colored, only the chip). */
+const chip = (h, Box, Button, boxKey, fill, button) =>
+  h(Box, { key: boxKey, width: TILE, backgroundColor: fill, justifyContent: 'center' }, h(Button, { plain: true, ...button }))
 
-/** The on-screen keyboard: framed keys by best known state; a known miss is just a dim · (an eaten pellet). */
+/** The on-screen keyboard: chips colored by best known state; a known miss is just a dim · (an eaten pellet). */
 const keyboard = (h, Box, Text, Button, game, on) => {
   const states = keyStates(game)
   const isOver = game.status !== 'playing'
@@ -179,45 +144,20 @@ const keyboard = (h, Box, Text, Button, game, on) => {
     const keys = [...row].map(ch => {
       const look = keyLook(states[ch])
       if (look.isEaten) {
-        return h(
-          Box,
-          { key: `kx-${ch}`, width: TILE, height: 3, justifyContent: 'center', alignItems: 'center' },
-          h(Text, { color: PALETTE.dim }, '·'),
-        )
+        return h(Box, { key: `kx-${ch}`, width: TILE, justifyContent: 'center' }, h(Text, { color: PALETTE.dim }, '·'))
       }
 
-      return framedKey(h, Box, Button, { boxKey: `kc-${ch}`, border: look.border }, {
-        key: `k-${ch}`,
-        label: ch.toUpperCase(),
-        dimColor: isOver,
-        onPress: () => on.letter(ch),
-      })
+      return chip(h, Box, Button, `kc-${ch}`, look.fill, { key: `k-${ch}`, label: ch.toUpperCase(), dimColor: isOver, onPress: () => on.letter(ch) })
     })
     if (i === 2) {
-      keys.unshift(
-        framedKey(h, Box, Button, { boxKey: 'kc-enter', border: PALETTE.accent, width: WIDE_KEY }, {
-          key: 'enter',
-          label: '⏎',
-          hotkey: ENTER_KEY,
-          dimColor: isOver,
-          onPress: () => on.enter(),
-        }),
-      )
-      keys.push(
-        framedKey(h, Box, Button, { boxKey: 'kc-back', border: PALETTE.keyIdle, width: WIDE_KEY }, {
-          key: 'back',
-          label: '⌫',
-          hotkey: BACKSPACE_KEY,
-          dimColor: isOver,
-          onPress: () => on.backspace(),
-        }),
-      )
+      keys.unshift(chip(h, Box, Button, 'kc-enter', PALETTE.accent, { key: 'enter', label: '⏎', dimColor: isOver, onPress: () => on.enter() }))
+      keys.push(chip(h, Box, Button, 'kc-back', PALETTE.keyIdle, { key: 'back', label: '⌫', dimColor: isOver, onPress: () => on.backspace() }))
     }
 
-    return h(Box, { key: `krow${i}`, flexDirection: 'row', justifyContent: 'center' }, ...keys)
+    return h(Box, { key: `krow${i}`, flexDirection: 'row', gap: 1, justifyContent: i === 1 ? 'center' : 'flex-start', width: KEYBOARD_WIDTH }, ...keys)
   })
 
-  return h(Box, { key: 'keyboard', flexDirection: 'column', width: KEYBOARD_WIDTH }, ...rows)
+  return h(Box, { key: 'keyboard', flexDirection: 'column' }, ...rows)
 }
 
 /** READY! (before guess 1) · GUESS N OF 6 · LIVES ◆◆◆◇◇◇; once the game ends, how it ended. */
@@ -242,18 +182,105 @@ const statusRow = (h, Box, Text, game) => {
 const statPair = (h, Box, Text, key, label, color, value) =>
   h(Box, { key, flexDirection: 'row', gap: 1 }, h(Text, { color, bold: true }, label), h(Text, { color: PALETTE.text, bold: true }, value))
 
-/** STREAK 04   BEST 09   WIN% 82, and the control that opens the details. */
-const statsRow = (h, Box, Text, Button, stats, isStatsOpen, on) =>
-  h(
+/** STREAK 04  BEST 09  WIN% 82  STAGE ◀ 27 SEP ▶ */
+const statsStageRow = (h, Box, Text, Button, { stats, puzzle, today }, on) => {
+  const date = puzzle?.date ?? today
+  const prev = stepStage(date, today, -1)
+  const next = stepStage(date, today, 1)
+  const arrow = (key, glyph, target, dir) =>
+    target ? h(Button, { key, label: glyph, plain: true, onPress: () => on.stepStage(dir) }) : h(Text, { key, color: PALETTE.dim }, ' ')
+
+  return h(
     Box,
-    { key: 'stats', flexDirection: 'row', gap: 3 },
+    { key: 'stats', flexDirection: 'row', gap: 2 },
     statPair(h, Box, Text, 'streak', 'STREAK', PALETTE.streak, pad(stats.currentStreak, 2)),
     statPair(h, Box, Text, 'best', 'BEST', PALETTE.best, pad(stats.maxStreak, 2)),
     statPair(h, Box, Text, 'win', 'WIN%', PALETTE.winPercent, pad(winPercent(stats), 2)),
-    h(Button, { key: 'stats-toggle', label: isStatsOpen ? '▴ LESS' : '▾ MORE', plain: true, dimColor: true, onPress: () => on.toggleStats() }),
+    h(
+      Box,
+      { key: 'stage', flexDirection: 'row', gap: 1 },
+      h(Text, { color: PALETTE.stage, bold: true }, 'STAGE'),
+      arrow('stage-prev', '◀', prev, -1),
+      h(Text, { color: PALETTE.text, bold: true }, stageLabel(date)),
+      arrow('stage-next', '▶', next, 1),
+    ),
+  )
+}
+
+/** The right-hand column: status, typing field, keyboard, stats and stage, in the reference's 7 rows. */
+const controls = (h, ui, view, on) => {
+  const { Box, Text, Button, Input } = ui
+  const { game, draft, isFieldBlanked } = view
+  const isOver = game.status !== 'playing'
+
+  return h(
+    Box,
+    { key: 'controls', flexDirection: 'column', justifyContent: 'center', flexGrow: 1, paddingX: RIGHT_PAD },
+    statusRow(h, Box, Text, game),
+    // The typing surface: the field edits `draft` natively (Backspace deletes the last
+    // letter, Enter submits); the chips feed the same draft. It sits where the reference
+    // has a blank row, so the pane is no taller for it.
+    isOver
+      ? h(Box, { key: 'no-field', height: 1 })
+      : h(Input, {
+          key: 'guess',
+          label: 'TYPE',
+          placeholder: 'a five-letter word',
+          // drawn empty for a moment to make the field take the draft again (see resyncField)
+          value: isFieldBlanked ? '' : draft,
+          autoFocus: true,
+          submitLabel: 'guess',
+          onInput: text => on.input(text),
+          onSubmit: () => on.enter(),
+        }),
+    keyboard(h, Box, Text, Button, game, on),
+    h(Text, { key: 'gap' }, ' '),
+    statsStageRow(h, Box, Text, Button, view, on),
+  )
+}
+
+/** The board column: six tile rows, nothing between them. */
+const board = (h, Box, Text, game, draft) =>
+  h(
+    Box,
+    { key: 'board', flexDirection: 'column', width: LEFT_COL, paddingX: LEFT_PAD, paddingY: FRAME_PADDING },
+    ...Array.from({ length: MAX_GUESSES }, (_, r) => tileRow(h, Box, Text, game, draft, r)),
   )
 
-/** The details under the stats row: games played, the 1–6 distribution, and Clear stats. */
+/** The faint line between board and controls: one column of │, as tall as the frame's body. */
+const divider = (h, Box, Text) =>
+  h(
+    Box,
+    { key: 'divider', flexDirection: 'column', width: 1 },
+    ...Array.from({ length: MAX_GUESSES + FRAME_PADDING * 2 }, (_, i) => h(Text, { key: `d${i}`, color: PALETTE.divider }, '│')),
+  )
+
+/** The WORDLE badge: bold spaced letters in the background color on a title-colored fill, ▐ ▌ in the accent color on each side. */
+const badge = (h, Box, Text) =>
+  h(
+    Box,
+    { key: 'badge', flexDirection: 'row' },
+    h(Text, { color: PALETTE.accent }, '▐'),
+    h(Text, { color: PALETTE.background, backgroundColor: PALETTE.title, bold: true }, ' W O R D L E '),
+    h(Text, { color: PALETTE.accent }, '▌'),
+  )
+
+const headerCell = (h, Box, Text, key, label, value) =>
+  h(Box, { key, flexDirection: 'row', gap: 1 }, h(Text, { color: PALETTE.title, bold: true }, label), h(Text, { color: PALETTE.text, bold: true }, value))
+
+/** The text after the badge: a practice stage, or a puzzle the new day has turned into practice. */
+const subtitle = (h, Text, puzzle, today) => {
+  if (!puzzle || puzzle.date === today) return null
+  // `isToday` is what the puzzle was when it loaded: if the day has since rolled
+  // over, this is no longer today's puzzle even though it started as one
+  if (puzzle.isToday) {
+    return h(Text, { key: 'subtitle', color: PALETTE.present, bold: true }, `A NEW DAY HAS STARTED · ${stageLabel(puzzle.date)} IS NOW PRACTICE`)
+  }
+
+  return h(Text, { key: 'subtitle', color: PALETTE.subtitle, bold: true }, 'PRACTICE STAGE')
+}
+
+/** The games-played line and the 1–6 distribution, opened by ▾ MORE (one row each, under the hint line). */
 const statsDetails = (h, Box, Text, Button, stats, isConfirmingClear, on) => {
   const most = Math.max(1, ...stats.distribution)
   const bars = stats.distribution.map((n, i) => {
@@ -273,7 +300,7 @@ const statsDetails = (h, Box, Text, Button, stats, isConfirmingClear, on) => {
     { key: 'stats-details', flexDirection: 'column' },
     h(
       Box,
-      { flexDirection: 'row', justifyContent: 'space-between' },
+      { flexDirection: 'row', gap: 3 },
       h(Text, { color: PALETTE.text }, `PLAYED ${stats.played} · WON ${stats.wins}`),
       // dim until the pointer or focus is on it; the first press only arms it
       h(Button, {
@@ -284,133 +311,8 @@ const statsDetails = (h, Box, Text, Button, stats, isConfirmingClear, on) => {
         onPress: () => on.clearStats(),
       }),
     ),
-    ...bars,
+    h(Box, { flexDirection: 'row', gap: 2 }, ...bars),
   )
-}
-
-/** STAGE ◀ 27 SEP ▶   ▶ TODAY   DATE…: step through the last 14 days, or type one. */
-const stageRow = (h, Box, Text, Button, { puzzle, today }, on) => {
-  const date = puzzle?.date ?? today
-  const prev = stepStage(date, today, -1)
-  const next = stepStage(date, today, 1)
-  const arrow = (key, glyph, target, dir) =>
-    target ? h(Button, { key, label: glyph, plain: true, onPress: () => on.stepStage(dir) }) : h(Text, { key, color: PALETTE.dim }, ' ')
-
-  return h(
-    Box,
-    { key: 'stage', flexDirection: 'row', gap: 3 },
-    h(
-      Box,
-      { key: 'stage-step', flexDirection: 'row', gap: 1 },
-      h(Text, { color: PALETTE.stage, bold: true }, 'STAGE'),
-      arrow('stage-prev', '◀', prev, -1),
-      h(Text, { color: PALETTE.text, bold: true }, stageLabel(date)),
-      arrow('stage-next', '▶', next, 1),
-    ),
-    date !== today && h(Button, { key: 'play-today', label: '▶ TODAY', plain: true, onPress: () => on.pickDate(today) }),
-    h(Button, { key: 'date-entry', label: 'DATE…', plain: true, dimColor: true, onPress: () => on.toggleDateEntry() }),
-  )
-}
-
-const divider = (h, Text) => h(Text, { key: 'divider', color: PALETTE.walls }, '─'.repeat(KEYBOARD_WIDTH))
-
-/** The right-hand panel: status, typing field, keyboard, divider, stats, stage, hint. */
-const controlsPanel = (h, ui, view, density, on) => {
-  const { Box, Text, Button, Input } = ui
-  const { game, draft, puzzle, isFieldBlanked, stats, isStatsOpen, isConfirmingClear, isDateEntryOpen } = view
-  const isOver = game.status !== 'playing'
-
-  return h(
-    Box,
-    {
-      key: 'controls',
-      flexDirection: 'column',
-      // roomy: a blank row between sections; short: the sections spread over the walls' height
-      gap: density === 'full' ? 1 : 0,
-      justifyContent: density === 'full' ? 'flex-start' : 'space-between',
-      width: RIGHT_PANEL,
-      borderStyle: 'double',
-      borderColor: PALETTE.walls,
-      backgroundColor: PALETTE.panel,
-      paddingX: RIGHT_PAD,
-      paddingY: density === 'full' ? 1 : 0,
-    },
-    statusRow(h, Box, Text, game),
-    puzzle?.source === 'fallback' &&
-      h(Button, { key: 'fallback-warning', label: '⚠ OFFLINE PUZZLE', plain: true, onPress: () => on.fallbackInfo() }),
-    // The typing surface: the field edits `draft` natively (Backspace deletes the
-    // last letter, Enter submits); the on-screen keys feed the same draft.
-    !isOver &&
-      h(Input, {
-        key: 'guess',
-        label: 'TYPE', // the field draws its own colon after it
-        placeholder: 'a five-letter word',
-        // drawn empty for a moment to make the field take the draft again (see resyncField)
-        value: isFieldBlanked ? '' : draft,
-        autoFocus: true,
-        submitLabel: 'guess',
-        onInput: text => on.input(text),
-        onSubmit: () => on.enter(),
-      }),
-    keyboard(h, Box, Text, Button, game, on),
-    divider(h, Text),
-    statsRow(h, Box, Text, Button, stats, isStatsOpen, on),
-    isStatsOpen && statsDetails(h, Box, Text, Button, stats, isConfirmingClear, on),
-    stageRow(h, Box, Text, Button, view, on),
-    // no autoFocus: the guess field owns the keyboard, letters here would be lost guesses
-    isDateEntryOpen &&
-      h(Input, {
-        key: 'archive-date',
-        label: 'DATE', // the field draws its own colon after it
-        placeholder: 'YYYY-MM-DD',
-        submitLabel: 'play',
-        onSubmit: text => on.pickDate(text),
-      }),
-    h(
-      Text,
-      { key: 'hint', color: PALETTE.dim },
-      isOver ? '◀ ▶ PICK ANOTHER STAGE · ESC TO EXIT' : 'TYPE TO PLAY · ESC TO EXIT',
-    ),
-  )
-}
-
-const boardPanel = (h, Box, Text, density, game, draft) =>
-  h(
-    Box,
-    {
-      key: 'board',
-      flexDirection: 'column',
-      // flat tiles leave room for the blank rows again; snug 3-row tiles can't spare them
-      gap: density === 'snug' ? 0 : 1,
-      justifyContent: 'center',
-      width: LEFT_PANEL,
-      borderStyle: 'double',
-      borderColor: PALETTE.walls,
-      backgroundColor: PALETTE.panel,
-      paddingX: LEFT_PAD,
-      paddingY: density === 'full' ? 1 : 0,
-    },
-    ...Array.from({ length: MAX_GUESSES }, (_, r) => tileRow(h, Box, Text, density === 'tight', game, draft, r)),
-  )
-
-const headerCell = (h, Box, Text, isFlat, key, label, value, align) =>
-  h(
-    Box,
-    { key, flexDirection: isFlat ? 'row' : 'column', alignItems: align, gap: isFlat ? 1 : 0 },
-    h(Text, { color: PALETTE.title, bold: true }, label),
-    h(Text, { color: PALETTE.text, bold: true }, value),
-  )
-
-/** The line under the title: a practice stage, or a puzzle the new day has turned into practice. */
-const subtitle = (h, Text, puzzle, today) => {
-  if (!puzzle || puzzle.date === today) return null
-  // `isToday` is what the puzzle was when it loaded: if the day has since rolled
-  // over, this is no longer today's puzzle even though it started as one
-  if (puzzle.isToday) {
-    return h(Text, { key: 'subtitle', color: PALETTE.present, bold: true }, `── A NEW DAY HAS STARTED · ${stageLabel(puzzle.date)} IS NOW PRACTICE ──`)
-  }
-
-  return h(Text, { key: 'subtitle', color: PALETTE.subtitle, bold: true }, '── PRACTICE STAGE ──')
 }
 
 /**
@@ -419,44 +321,84 @@ const subtitle = (h, Text, puzzle, today) => {
  * never touches the engine's `$`.
  *
  * @param ui `{ h, Box, Text, Button, Input }`
- * @param view `{ game, draft, puzzle, today, stats, isStatsOpen, isConfirmingClear, isDateEntryOpen, isFieldBlanked, celebrationFrame, isMotionReduced, screen, layout }`; `celebrationFrame` >= 0 shows the win screen instead of the board; `screen` is `{ columns, rows }`, the win screen's size; `layout` is `{ columns, rows }`, the pane body's room (rows may be unknown), which picks the board's layout and density; `game` null means still loading
+ * @param view `{ game, draft, puzzle, today, stats, isStatsOpen, isConfirmingClear, isDateEntryOpen, isFieldBlanked, celebrationFrame, isMotionReduced, screen, layout }`; `celebrationFrame` >= 0 shows the win screen instead of the board; `screen` is `{ columns, rows }`, the win screen's size; `layout` is `{ columns }`, the pane body's width, which picks side by side or stacked; `game` null means still loading
  * @param on `{ letter(ch), enter(), backspace(), input(text), pickDate(date), stepStage(dir), toggleStats(), toggleDateEntry(), clearStats(), fallbackInfo(), skipCelebration() }`
  */
 export const renderBoard = (ui, view, on) => {
-  const { h, Box, Text, Button } = ui
-  const { game, draft, puzzle, today, stats, celebrationFrame, isMotionReduced, screen, layout } = view
+  const { h, Box, Text, Button, Input } = ui
+  const { game, draft, puzzle, today, stats, isStatsOpen, isConfirmingClear, isDateEntryOpen, celebrationFrame, isMotionReduced, screen, layout } = view
   if (celebrationFrame >= 0) return celebrationScreen(h, Box, Text, Button, celebrationFrame, screen, isMotionReduced, on)
   if (!game) {
     return h(Box, { flexDirection: 'column', backgroundColor: PALETTE.background }, h(Text, { color: PALETTE.dim }, 'LOADING TODAY’S STAGE…'))
   }
 
   const isSideBySide = layout.columns >= SIDE_BY_SIDE_MIN
-  const width = isSideBySide ? SIDE_BY_SIDE_MIN : Math.min(layout.columns, RIGHT_PANEL)
-  const density = densityFor(layout.rows, isSideBySide)
-  const space = density === 'full' ? 1 : 0
-  const isTight = density === 'tight'
-  const title =
-    layout.columns >= BLOCK_TITLE_MIN && !isTight
-      ? h(Box, { key: 'title', flexDirection: 'column' }, ...blockTitle().map((line, i) => h(Text, { key: `title${i}`, color: PALETTE.title }, line)))
-      : h(Box, { key: 'title' }, h(Text, { color: PALETTE.title, bold: true }, 'WORDLE'))
+  const width = Math.min(layout.columns, MAX_WIDTH)
+  const isOver = game.status !== 'playing'
+  const date = puzzle?.date ?? today
 
   return h(
     Box,
-    { flexDirection: 'column', alignItems: 'center', backgroundColor: PALETTE.background, paddingY: space },
+    { flexDirection: 'column', width, backgroundColor: PALETTE.background },
     h(
       Box,
-      { key: 'header', flexDirection: 'row', justifyContent: 'space-between', width },
-      headerCell(h, Box, Text, isTight, 'score', '1UP', pad(gameScore(game), 5), 'flex-start'),
-      headerCell(h, Box, Text, isTight, 'hi-score', 'HI-SCORE', pad(hiScore(stats), 5), 'center'),
-      headerCell(h, Box, Text, isTight, 'stage-date', 'STAGE', stageLabel(puzzle?.date ?? today), 'flex-end'),
+      { key: 'header', flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', columnGap: 2 },
+      h(
+        Box,
+        { key: 'header-left', flexDirection: 'row', columnGap: 2 },
+        badge(h, Box, Text),
+        subtitle(h, Text, puzzle, today),
+        puzzle?.source === 'fallback' && h(Button, { key: 'fallback-warning', label: '⚠ OFFLINE', plain: true, onPress: () => on.fallbackInfo() }),
+      ),
+      h(
+        Box,
+        { key: 'header-right', flexDirection: 'row', columnGap: 3 },
+        headerCell(h, Box, Text, 'score', '1UP', pad(gameScore(game), 5)),
+        headerCell(h, Box, Text, 'hi-score', 'HI', pad(hiScore(stats), 5)),
+        headerCell(h, Box, Text, 'stage-date', 'STAGE', stageLabel(date)),
+      ),
     ),
-    h(Box, { key: 'title-wrap', marginTop: space }, title),
-    subtitle(h, Text, puzzle, today),
     h(
       Box,
-      { key: 'panels', flexDirection: isSideBySide ? 'row' : 'column', alignItems: isSideBySide ? 'stretch' : 'center', gap: 1, marginTop: space },
-      boardPanel(h, Box, Text, density, game, draft),
-      controlsPanel(h, ui, view, density, on),
+      {
+        key: 'frame',
+        flexDirection: isSideBySide ? 'row' : 'column',
+        alignItems: isSideBySide ? 'stretch' : 'center',
+        borderStyle: 'round',
+        borderColor: PALETTE.walls,
+        backgroundColor: PALETTE.panel,
+      },
+      board(h, Box, Text, game, draft),
+      isSideBySide && divider(h, Box, Text),
+      controls(h, ui, view, on),
     ),
+    h(
+      Box,
+      { key: 'footer', flexDirection: 'row', justifyContent: 'space-between' },
+      h(
+        Box,
+        { key: 'hint', flexDirection: 'row' },
+        isOver
+          ? h(Text, { color: PALETTE.dim }, '◀ ▶ PICK ANOTHER STAGE · ESC TO EXIT')
+          : [
+              h(Text, { key: 'h0', color: PALETTE.dim }, 'TYPE TO PLAY · '),
+              h(Button, { key: 'hotkey-enter', label: 'ENTER', hotkey: ENTER_KEY, plain: true, dimColor: true, onPress: () => on.enter() }),
+              h(Text, { key: 'h1', color: PALETTE.dim }, ' · '),
+              h(Button, { key: 'hotkey-back', label: 'DELETE', hotkey: BACKSPACE_KEY, plain: true, dimColor: true, onPress: () => on.backspace() }),
+              h(Text, { key: 'h2', color: PALETTE.dim }, ' · ESC TO EXIT'),
+            ],
+      ),
+      h(
+        Box,
+        { key: 'footer-right', flexDirection: 'row', columnGap: 2 },
+        h(Button, { key: 'stats-toggle', label: isStatsOpen ? '▴ LESS' : '▾ MORE', plain: true, dimColor: true, onPress: () => on.toggleStats() }),
+        date !== today && h(Button, { key: 'play-today', label: '▶ TODAY', plain: true, onPress: () => on.pickDate(today) }),
+        h(Button, { key: 'date-entry', label: 'DATE…', plain: true, dimColor: true, onPress: () => on.toggleDateEntry() }),
+      ),
+    ),
+    isStatsOpen && statsDetails(h, Box, Text, Button, stats, isConfirmingClear, on),
+    // no autoFocus: the guess field owns the keyboard, letters here would be lost guesses
+    isDateEntryOpen &&
+      h(Input, { key: 'archive-date', label: 'DATE', placeholder: 'YYYY-MM-DD', submitLabel: 'play', onSubmit: text => on.pickDate(text) }),
   )
 }

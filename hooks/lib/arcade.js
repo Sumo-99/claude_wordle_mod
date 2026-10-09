@@ -17,38 +17,14 @@ export const PALETTE = {
   active: '#2e2a26',
   accent: '#d97757',
   pellet: '#e8a07c',
-  keyIdle: '#5a524a',
+  keyIdle: '#2e2a26',
+  divider: '#3a3430',
   ready: '#f0b44c',
   lives: '#e8875f',
   streak: '#e58fc4',
   best: '#7cc4e8',
   winPercent: '#f0b44c',
   stage: '#e8875f',
-}
-
-// A 5×7 bitmap per title letter, '#' lit. Packed two pixel rows per text row
-// into ▀ ▄ █, so the title is 4 rows tall.
-const FONT = {
-  W: ['#...#', '#...#', '#...#', '#.#.#', '#.#.#', '##.##', '#...#'],
-  O: ['#####', '#...#', '#...#', '#...#', '#...#', '#...#', '#####'],
-  R: ['####.', '#...#', '#...#', '####.', '#.#..', '#..#.', '#...#'],
-  D: ['####.', '#...#', '#...#', '#...#', '#...#', '#...#', '####.'],
-  L: ['#....', '#....', '#....', '#....', '#....', '#....', '#####'],
-  E: ['#####', '#....', '#....', '####.', '#....', '#....', '#####'],
-}
-
-const HALF = { '00': ' ', '10': '▀', '01': '▄', '11': '█' }
-
-/** `word` in the block font: 4 strings, one per text row, letters one column apart. */
-export const blockTitle = (word = 'WORDLE') => {
-  const glyphs = [...word].map(ch => FONT[ch])
-  const lit = (glyph, y, x) => (glyph[y]?.[x] === '#' ? '1' : '0')
-
-  return Array.from({ length: 4 }, (_, row) =>
-    glyphs
-      .map(glyph => Array.from({ length: 5 }, (_, x) => HALF[lit(glyph, row * 2, x) + lit(glyph, row * 2 + 1, x)]).join(''))
-      .join(' '),
-  )
 }
 
 /** The score a game earns: 100 for every guess left unused on a win, 0 otherwise. */
@@ -101,11 +77,11 @@ export const tileLook = score => ({
   letter: score === 'gray' ? PALETTE.dim : PALETTE.background,
 })
 
-const KEY_BORDER = { green: PALETTE.correct, yellow: PALETTE.present }
+const KEY_FILL = { green: PALETTE.correct, yellow: PALETTE.present }
 
 /**
- * How the on-screen key for a letter in `state` (keyStates) is drawn: a
- * framed key with this border color, or, once the letter is a known miss,
- * no key at all (`{ isEaten: true }`, an eaten pellet).
+ * How the on-screen key for a letter in `state` (keyStates) is drawn: a chip
+ * with this fill, or, once the letter is a known miss, no key at all
+ * (`{ isEaten: true }`, an eaten pellet).
  */
-export const keyLook = state => (state === 'gray' ? { isEaten: true } : { border: KEY_BORDER[state] ?? PALETTE.keyIdle })
+export const keyLook = state => (state === 'gray' ? { isEaten: true } : { fill: KEY_FILL[state] ?? PALETTE.keyIdle })

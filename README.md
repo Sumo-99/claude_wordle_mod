@@ -32,9 +32,9 @@ typed by you has no width limit.
 ## Playing
 
 You get six guesses at the day's five-letter word. The pane is drawn as an
-arcade cabinet ("Claude night"): a score header, a block-letter **WORDLE**
-title, and two walled panels, the board on the left and the controls on the
-right.
+arcade cabinet ("Claude night"), about 12 rows tall: a one-line header (the
+**WORDLE** badge, 1UP / HI / STAGE), one rounded frame with the board on the
+left and the controls on the right, and a hint line under it.
 
 After each guess every tile is filled by its result:
 
@@ -45,9 +45,9 @@ After each guess every tile is filled by its result:
 Rows you haven't reached are pellets (`•`, with `●` power pellets in the last
 row's corners); the row you are typing shows your letters and a `▌` cursor.
 
-The keyboard mirrors what you've learned: a key's double-line frame turns
-green or amber once that letter is found, and a letter that is known to be a
-miss is eaten: its key disappears, leaving a dim `·`.
+The keyboard mirrors what you've learned: a key's chip turns green or amber
+once that letter is found, and a letter that is known to be a miss is eaten:
+its key disappears, leaving a dim `·`.
 
 ### Controls
 
@@ -55,15 +55,15 @@ miss is eaten: its key disappears, leaving a dim `·`.
 |---|---|
 | **TYPE:** field | Type your guess (it has the keyboard when the pane opens). Backspace deletes the last letter, Enter submits. |
 | On-screen keys | Click a letter to add it. **⏎** submits, **⌫** deletes. |
-| `1` / `2` | Hotkeys for ⏎ and ⌫ (when the focus is on the pane, not in the field). Letter keys have no hotkey of their own: type into the field instead. |
-| **▾ MORE** | Beside the STREAK/BEST/WIN% row: opens games played, the 1–6 guess distribution, and **CLEAR STATS** (press twice to confirm). **▴ LESS** closes it. |
+| `1` / `2` | Hotkeys for ⏎ and ⌫, shown on the hint line as `1: ENTER` / `2: DELETE` (when the focus is on the pane, not in the field). Letter keys have no hotkey of their own: type into the field instead. |
+| **▾ MORE** | On the hint line: opens games played, the 1–6 guess distribution, and **CLEAR STATS** (press twice to confirm) one row under it. **▴ LESS** closes it. |
 | **◀ ▶** | Beside the STAGE date: step back and forward through the last 14 days. |
 | **▶ TODAY** | Jump back to today's puzzle (shown on any other day). |
 | **DATE…** | Opens a field for any date (`YYYY-MM-DD`, from 2021-06-19 on). |
 | Esc | Close the pane. |
 
-Above the board: **1UP** is this puzzle's score (100 for every guess left
-when you solve it, 0 otherwise), **HI-SCORE** is the best score in your
+In the header: **1UP** is this puzzle's score (100 for every guess left
+when you solve it, 0 otherwise), **HI** is the best score in your
 stats, and **STAGE** is the puzzle's date. **LIVES** shows ◆ for each guess
 left and ◇ for each used; **READY!** shows until your first guess.
 
@@ -78,26 +78,24 @@ the history to zero without touching your saved boards.
 
 ### Practice: past puzzles
 
-Any day other than today is a **practice stage** (`── PRACTICE STAGE ──`
-under the title): it never changes your stats. Step to one with **◀ ▶** or
+Any day other than today is a **practice stage** (**PRACTICE STAGE** beside
+the badge): it never changes your stats. Step to one with **◀ ▶** or
 type a date behind **DATE…**. Your board for each date is saved, so
 **▶ TODAY** resumes where you left off.
 
 ### Pane size
 
-The layout adapts to the room the pane has. From about 90 columns the two
-panels sit side by side; narrower, the controls drop under the board, and
-below about 70 columns the title is a plain **WORDLE**. In a short pane the
-blank rows go first, then the tiles, title and header flatten to one row
-each. An inline pane gets roughly a third of the terminal's height, so the
-full layout shows in a docked pane (fullscreen, 110+ columns) or a very tall
-terminal; otherwise the pane scrolls with the arrow keys.
+The pane is about 12 rows tall at its usual ~78 columns, so it fits an
+inline pane in an ordinary terminal. From 75 columns the board and the
+controls sit side by side; narrower, the controls drop under the board and
+the pane is taller (it scrolls with the arrow keys if it runs out of room).
+**▾ MORE** and **DATE…** each add one row under the hint line.
 
 ### Offline
 
 The day's word comes from the NYT's unofficial Wordle endpoint. If it
 can't be reached, the mod falls back to a deterministic offline word and
-shows a **⚠ OFFLINE PUZZLE** marker in the controls panel; press it to see why. The endpoint is
+shows a **⚠ OFFLINE** marker in the header; press it to see why. The endpoint is
 undocumented and can change without notice, which is exactly what the
 fallback is for.
 

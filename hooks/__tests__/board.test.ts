@@ -10,9 +10,9 @@ const FILL = { green: '#5fb87a', yellow: '#f0b44c', miss: '#2e2a26', active: '#2
 const flat = (el: any): string =>
   el == null ? '' : typeof el === 'string' ? el : (el.children ?? []).map(flat).filter(Boolean).join(' ')
 
-/** Tile (row r, column i): the letter in its middle row and that row's fill and letter color. */
+/** Tile (row r, column i): its 3-column text (` X `) and that text's fill and letter color. */
 const tileAt = async (pane: any, r: number, i: number) => {
-  const middle = (await pane.find({ key: `t${r}-${i}` }))?.children[1]
+  const middle = (await pane.find({ key: `t${r}-${i}` }))?.children[0]
 
   return { text: middle?.children[0], fill: middle?.props.backgroundColor, color: middle?.props.color }
 }
@@ -67,7 +67,7 @@ for (const surface of ['terminal', 'desktop'] as const) {
     expect(await text()).toContain('GUESS 2 OF 6')
     // the rejected word stays in the draft until backspaced away
     for (let i = 0; i < 5; i++) await pane.press({ key: 'back' } as any)
-    expect((await tileAt(pane, 1, 0)).text).toBe('  ▌  ') // an empty row again, cursor in its first tile
+    expect((await tileAt(pane, 1, 0)).text).toBe(' ▌ ') // an empty row again, cursor in its first tile
     await press('prove')
     await clock.advance(3100) // the win screen covers the board for 3 seconds
     expect(await scored(1)).toEqual(['P', 'R', 'O', 'V', 'E'].map(ch => `${ch}:${FILL.green}`))
@@ -183,7 +183,7 @@ test('an offline puzzle shows the warning marker, and pressing it explains why',
   await clock.settle()
 
   const marker = await pane.find({ key: 'fallback-warning' } as any)
-  expect(marker?.props.label).toBe('⚠ OFFLINE PUZZLE')
+  expect(marker?.props.label).toBe('⚠ OFFLINE')
   await pane.press({ key: 'fallback-warning' } as any)
   expect(toasts.at(-1)).toContain("Couldn't reach the live word")
 })
@@ -401,12 +401,10 @@ test('V1: the on-screen keys show what the guesses found; a miss is eaten down t
   await play('mocha') // o present; m c h a miss
 
   const box = (ch: string) => pane.find({ key: `kc-${ch}` } as any)
-  for (const ch of ['r', 'e']) {
-    expect((await box(ch))?.props.borderColor).toBe(FILL.green)
-    expect((await box(ch))?.props.borderStyle).toBe('double')
-  }
-  expect((await box('o'))?.props.borderColor).toBe(FILL.yellow)
-  expect((await box('q'))?.props.borderColor).toBe('#5a524a') // untried: the idle outline
+  for (const ch of ['r', 'e']) expect((await box(ch))?.props.backgroundColor).toBe(FILL.green)
+  expect((await box('o'))?.props.backgroundColor).toBe(FILL.yellow)
+  expect((await box('q'))?.props.backgroundColor).toBe('#2e2a26') // untried: the idle chip
+  expect((await box('q'))?.props.width).toBe(3) // a 3x1 chip
   expect((await pane.find({ key: 'k-q' } as any))?.props.dimColor).toBe(false)
   expect((await pane.find({ key: 'k-q' } as any))?.props.label).toBe('Q') // just the letter...
   expect((await pane.find({ key: 'k-q' } as any))?.props.plain).toBe(true) // ...no [ brackets ]
@@ -416,8 +414,8 @@ test('V1: the on-screen keys show what the guesses found; a miss is eaten down t
     expect(await pane.find({ key: `k-${ch}` } as any)).toBeUndefined()
     expect((await pane.find({ key: `kx-${ch}` } as any))?.children[0]).toMatchObject({ type: 'Text', props: { color: '#6e655b' }, children: ['·'] })
   }
-  // Enter always wears the accent outline
-  expect((await box('enter'))?.props.borderColor).toBe('#d97757')
+  // Enter always wears the accent fill
+  expect((await box('enter'))?.props.backgroundColor).toBe('#d97757')
 })
 
 test('tiles: scored fills, the typed row with its cursor, and pellets ahead', async ($, on) => {
@@ -426,19 +424,19 @@ test('tiles: scored fills, the typed row with its cursor, and pellets ahead', as
   await pane.input({ key: 'guess', text: 'pl', kind: 'change' } as any)
 
   // scored: the letter is background-colored on green, dim on a miss
-  expect(await tileAt(pane, 0, 1)).toEqual({ text: '  R  ', fill: FILL.green, color: '#171513' })
-  expect(await tileAt(pane, 0, 0)).toEqual({ text: '  C  ', fill: FILL.miss, color: '#6e655b' })
-  // each tile is pixel-rounded: ▗▄▄▄▖ over the middle, ▝▀▀▀▘ under it, in the tile's color
+  expect(await tileAt(pane, 0, 1)).toEqual({ text: ' R ', fill: FILL.green, color: '#171513' })
+  expect(await tileAt(pane, 0, 0)).toEqual({ text: ' C ', fill: FILL.miss, color: '#6e655b' })
+  // each tile is one row: ` X ` on a fill, 3 columns wide, no rounded top or bottom
   const t = await pane.find({ key: 't0-1' } as any)
-  expect(t?.children[0]).toMatchObject({ props: { color: FILL.green }, children: ['▗▄▄▄▖'] })
-  expect(t?.children[2]).toMatchObject({ props: { color: FILL.green }, children: ['▝▀▀▀▘'] })
+  expect(t?.props.width).toBe(3)
+  expect(t?.children).toHaveLength(1)
   // the active row: typed letters in the text color, the ▌ cursor in the next empty tile
-  expect(await tileAt(pane, 1, 0)).toEqual({ text: '  P  ', fill: FILL.active, color: '#f0e8dc' })
-  expect(await tileAt(pane, 1, 2)).toEqual({ text: '  ▌  ', fill: FILL.active, color: '#d97757' })
+  expect(await tileAt(pane, 1, 0)).toEqual({ text: ' P ', fill: FILL.active, color: '#f0e8dc' })
+  expect(await tileAt(pane, 1, 2)).toEqual({ text: ' ▌ ', fill: FILL.active, color: '#d97757' })
   expect((await tileAt(pane, 1, 3)).fill).toBe(FILL.active)
   // rows ahead have no tiles, just pellets; the last row has power pellets in its corners
   expect((await tileAt(pane, 2, 0)).fill).toBeUndefined()
-  expect((await tileAt(pane, 2, 0)).text).toBe('  •  ')
+  expect((await tileAt(pane, 2, 0)).text).toBe(' • ')
   expect((await rowOf(pane, 5)).map(t => t.text.trim())).toEqual(['●', '•', '•', '•', '●'])
 })
 
@@ -457,20 +455,20 @@ test('the status row: READY! only before guess 1, the guess count, and lives', a
 
 test('1UP and HI-SCORE: 100 per guess left on a win; practice never sets the HI-SCORE', async ($, on) => {
   const { pane, clock, play } = await setupGame($, on, { answers: { '2026-10-07': 'prove', '2026-10-06': 'crane' } })
-  const header = async () => flat(await pane.find({ key: 'header' } as any))
+  const header = async () => flat(await pane.find({ key: 'header-right' } as any))
 
-  expect(await header()).toBe('1UP 00000 HI-SCORE 00000 STAGE 07 OCT')
+  expect(await header()).toBe('1UP 00000 HI 00000 STAGE 07 OCT')
   await play('crane')
   await play('prove') // won in 2: 4 guesses left
   await clock.advance(3100)
-  expect(await header()).toBe('1UP 00400 HI-SCORE 00400 STAGE 07 OCT')
+  expect(await header()).toBe('1UP 00400 HI 00400 STAGE 07 OCT')
 
   await pane.press({ key: 'stage-prev' } as any) // practice: won in 1
   await clock.settle()
   await clock.settle()
   await play('crane')
   await clock.advance(3100)
-  expect(await header()).toBe('1UP 00500 HI-SCORE 00400 STAGE 06 OCT')
+  expect(await header()).toBe('1UP 00500 HI 00400 STAGE 06 OCT')
 })
 
 test('stage stepping: ◀ ▶ walk the last 14 days, ▶ TODAY jumps back', async ($, on) => {
@@ -519,54 +517,42 @@ test('a typed date still works, behind DATE…', async ($, on) => {
   expect(await pane.find({ key: 'archive-date' } as any)).toBeUndefined() // closed once it worked
 })
 
-test('layout: side by side with the block title when wide, stacked with a plain title when narrow', async ($, on) => {
+test('layout: side by side from 75 columns, stacked below, always one round frame and the WORDLE badge', async ($, on) => {
   const { pane } = await setupGame($, on)
   // nothing on the board is drawn with [ brackets ]: every Button is plain
   for (const b of await pane.findAll({ type: 'Button' } as any)) expect(b.props.plain).toBe(true)
   await pane.unmount()
-  for (const [columns, direction, isBlock] of [
-    [100, 'row', true],
+  for (const [columns, direction, hasDivider] of [
+    [78, 'row', true],
+    [75, 'row', true],
+    [74, 'column', false],
     [60, 'column', false],
   ] as const) {
-    const wide = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: { bodyColumns: columns }, requestId: 'wordle' } as any)
-    expect((await wide.find({ key: 'panels' } as any))?.props.flexDirection).toBe(direction)
-    const title = await wide.find({ key: 'title' } as any)
-    expect(flat(title).includes('█')).toBe(isBlock)
-    if (!isBlock) expect(flat(title)).toBe('WORDLE')
-    // both panels wear the double walls in the walls color
-    for (const key of ['board', 'controls']) {
-      expect((await wide.find({ key } as any))?.props).toMatchObject({ borderStyle: 'double', borderColor: '#d97757' })
-    }
-    await wide.unmount()
+    const ui = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: { bodyColumns: columns }, requestId: 'wordle' } as any)
+    const frame = await ui.find({ key: 'frame' } as any)
+    expect(frame?.props.flexDirection).toBe(direction)
+    expect(frame?.props).toMatchObject({ borderStyle: 'round', borderColor: '#d97757' })
+    expect((await ui.find({ key: 'divider' } as any)) !== undefined).toBe(hasDivider)
+    expect(flat(await ui.find({ key: 'badge' } as any))).toBe('▐  W O R D L E  ▌')
+    await ui.unmount()
   }
 })
 
-test('layout: a short pane drops the blank rows, then flattens the tiles, the title and the header', async ($, on) => {
+test('compact: 12 rows at 78 columns (1 header, 8 body + 2 frame, 1 footer), no blank rows between tile rows', async ($, on) => {
   const { pane } = await setupGame($, on)
   await pane.unmount()
-  const mountAt = (bodyRows: number) =>
-    $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: { bodyColumns: 96, scroll: { offset: 0, bodyRows } }, requestId: 'wordle' } as any)
-
-  // roomy (the reference): 3-row tiles with a blank row between tile rows, block title
-  let ui = await mountAt(40)
-  expect((await ui.find({ key: 'board' } as any))?.props.gap).toBe(1)
-  expect((await ui.find({ key: 't0-0' } as any))?.children).toHaveLength(3)
-  expect(flat(await ui.find({ key: 'title' } as any))).toContain('█')
-  await ui.unmount()
-
-  // snug: the tiles keep their shape, the blank rows go
-  ui = await mountAt(30)
-  expect((await ui.find({ key: 'board' } as any))?.props.gap).toBe(0)
-  expect((await ui.find({ key: 't0-0' } as any))?.children).toHaveLength(3)
-  expect(flat(await ui.find({ key: 'title' } as any))).toContain('█')
-  await ui.unmount()
-
-  // tight: one-row tiles, a plain title, a one-row header
-  ui = await mountAt(18)
-  expect((await ui.find({ key: 't0-0' } as any))?.children).toHaveLength(1)
-  expect(flat(await ui.find({ key: 'title' } as any))).toBe('WORDLE')
-  expect((await ui.find({ key: 'score' } as any))?.props.flexDirection).toBe('row')
-  await ui.unmount()
+  const ui = await $.ui.mount({ plugin: 'wordle-mod', surface: 'terminal', component: 'Pane', props: { bodyColumns: 78 }, requestId: 'wordle' } as any)
+  const board = await ui.find({ key: 'board' } as any)
+  expect(board?.children).toHaveLength(6) // six tile rows, nothing between them
+  expect(board?.props.gap).toBeUndefined()
+  expect(board?.props.paddingY).toBe(1)
+  for (let r = 0; r < 6; r++) expect((await ui.find({ key: `row${r}` } as any))?.children[0]).toMatchObject({ type: 'Box', props: { width: 3 } })
+  const rows = 1 + (6 + 2 * 1 + 2) + 1 // header, board with padding and the frame's two border rows, footer
+  expect(rows).toBe(12)
+  expect((await ui.find({ key: 'divider' } as any))?.children).toHaveLength(8) // as tall as the frame's body
+  // the right-hand column: status, typing field, the keyboard, a gap, stats and stage
+  expect((await ui.find({ key: 'controls' } as any))?.children).toHaveLength(5)
+  expect((await ui.find({ key: 'keyboard' } as any))?.children).toHaveLength(3)
 })
 
 test('V3: when the game is over the keyboard fades and the status line says what to do next', async ($, on) => {
@@ -686,7 +672,7 @@ test('a refused focus move never breaks a key press', async ($, on) => {
   expect((await pane.find({ key: 'guess' } as any))?.props.value).toBe('pr')
 })
 
-test('⏎ and ⌫ keep their 1 and 2 hotkeys, and the hint says how to play', async ($, on) => {
+test('the 1 and 2 hotkeys live on the hint line, and it says how to play', async ($, on) => {
   mock.store(on)
   const clock = mock.clock(on, { now: Date.parse('2026-10-07T12:00:00') })
   on('http.fetch', async () => ({ value: ok({ solution: SOLUTION }) }))
@@ -697,11 +683,15 @@ test('⏎ and ⌫ keep their 1 and 2 hotkeys, and the hint says how to play', as
   await clock.settle()
   await clock.settle()
 
-  expect((await pane.find({ key: 'enter' } as any))?.props).toMatchObject({ label: '⏎', hotkey: '1', plain: true })
-  expect((await pane.find({ key: 'back' } as any))?.props).toMatchObject({ label: '⌫', hotkey: '2', plain: true })
-  // letter keys carry no hotkey: a plain Button with one would draw as `q: Q`
-  expect((await pane.find({ key: 'k-q' } as any))?.props.hotkey).toBeUndefined()
-  expect(JSON.stringify(await pane.drawn())).toContain('TYPE TO PLAY · ESC TO EXIT')
+  // the hotkeys sit on the hint line (`1: ENTER`): a plain Button with a hotkey draws a prefix, too wide for a chip
+  expect((await pane.find({ key: 'hotkey-enter' } as any))?.props).toMatchObject({ label: 'ENTER', hotkey: '1', plain: true })
+  expect((await pane.find({ key: 'hotkey-back' } as any))?.props).toMatchObject({ label: 'DELETE', hotkey: '2', plain: true })
+  // the chips are plain clickable keys, and letter keys carry no hotkey either
+  expect((await pane.find({ key: 'enter' } as any))?.props).toMatchObject({ label: '⏎', plain: true })
+  expect((await pane.find({ key: 'back' } as any))?.props).toMatchObject({ label: '⌫', plain: true })
+  for (const key of ['enter', 'back', 'k-q']) expect((await pane.find({ key } as any))?.props.hotkey).toBeUndefined()
+  // the hint line reads `TYPE TO PLAY · 1: ENTER · 2: DELETE · ESC TO EXIT` (the two Buttons are its middle)
+  expect(flat(await pane.find({ key: 'hint' } as any))).toBe('TYPE TO PLAY ·   ·   · ESC TO EXIT')
 })
 
 test('/wordle config reset-history: asks first, then wipes games and words but keeps stats and settings', async ($, on) => {
