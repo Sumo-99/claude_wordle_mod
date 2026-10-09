@@ -4,6 +4,14 @@ A [Claude Code mod](https://code.claude.com/docs/en/plugins/mods) that lets
 you play Wordle in a pane while Claude is busy generating a response. It
 works in the terminal CLI and in the Code tab of the Claude Desktop app.
 
+## Install
+
+From the marketplace (Claude Code 2.1.275 or later):
+
+```bash
+/plugin install wordle-mod --marketplace Sumo-99/claude_wordle_mod
+```
+
 ## Load it
 
 From a clone of this repo:
@@ -181,6 +189,31 @@ can't be reached, the mod falls back to a deterministic offline word and
 shows a **⚠ OFFLINE** marker in the header; press it to see why. The endpoint is
 undocumented and can change without notice, which is exactly what the
 fallback is for.
+
+## Network, data and privacy
+
+What the mod does with your machine, in full:
+
+- **Network:** one request per puzzle date, to the NYT's unofficial Wordle
+  endpoint, `https://www.nytimes.com/svc/wordle/v2/<YYYY-MM-DD>.json`, with a
+  3-second timeout. The only thing sent is the date being looked up. No
+  account, no name, no prompt or code from your session is sent, and no other
+  host is contacted.
+- **Local reads:** the two word lists in `data/`, read from the plugin folder
+  so the offline word and the guess check work.
+- **Local storage:** the day's answer, your stats, which days you've played,
+  and the pane's layout choices, kept in the engine's per-plugin store on your
+  machine. Nothing in it leaves the machine.
+- **Commands and tools:** the mod runs no shell commands, starts no agents,
+  and calls no tools or MCP servers. It draws its own pane, answers the
+  `/wordle` command, optionally opens the pane when a session starts, and runs
+  its own animation timers.
+- **Credentials:** the mod reads no credentials, tokens or keys from your
+  machine.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
 
 ## Development
 

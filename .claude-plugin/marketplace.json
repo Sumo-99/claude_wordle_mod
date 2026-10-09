@@ -1,0 +1,14 @@
+{
+  "name": "Sumo-99-claude-wordle-mod",
+  "owner": { "name": "Sumanth Ramesh" },
+  "description": "A Wordle-style game in a pane that plays while Claude generates a response.",
+  "plugins": [
+    {
+      "name": "wordle-mod",
+      "source": "./",
+      "description": "Play a Wordle-style game in a pane while Claude generates a response.",
+      "version": "0.1.0",
+      "license": "MIT"
+    }
+  ]
+}
